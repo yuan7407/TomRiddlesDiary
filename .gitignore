@@ -1,0 +1,74 @@
+# ============================================================
+# Tom Riddle's Diary — .gitignore
+# 写在任何 git 提交之前。密钥与本地 persona 永不入库。
+# ============================================================
+
+# ---- Secrets & 本地 persona 配置（绝不提交）----
+Config/Secrets.xcconfig
+Config/Persona.local.json
+Config/*.local.json
+Config/*.local.xcconfig
+**/Secrets.xcconfig
+.env
+.env.*
+*.key
+*.pem
+*.p12
+*.mobileprovision
+
+# ---- macOS ----
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+.Spotlight-V100
+.Trashes
+
+# ---- Xcode ----
+build/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+*.xcworkspace/xcuserdata/
+*.moved-aside
+*.pbxuser
+*.mode1v3
+*.mode2v3
+*.perspectivev3
+*.hmap
+*.ipa
+*.dSYM
+*.dSYM.zip
+*.xcscmblueprint
+*.xccheckout
+
+# ---- Swift Package Manager ----
+.build/
+.swiftpm/xcode/
+Package.resolved
+
+# ---- CocoaPods / Carthage（若使用）----
+Pods/
+Carthage/Build/
+
+# ---- Python (scripts/stroke_spike Task 1) ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# ---- Stroke spike 实验输出 / 临时文件 ----
+scripts/stroke_spike/out/
+scripts/stroke_spike/output/
+*.tmp
+*.log
+
+# ---- IDE ----
+.idea/
+*.swp
+*~
