@@ -20,11 +20,18 @@
 
 ## 代码与资产同步流程
 
-**本地修改 → IP/密钥门禁 → 提交 → PR → main**
+**默认流程：同步远端 → feature 分支修改 → 验证与门禁 → 提交 → 推送 → PR → main → 再核对两端 commit**
 
-1. 提交前必须运行 `scripts/ip_firewall_check.sh`（禁用词门禁，bundle id/仓库名在已接受清单放行）与 `swift test`
-2. `Config/Secrets.xcconfig` 永不提交（`.gitignore` 已含）
-3. feature 分支开发，PR 合入 main，禁止直接推 main
+用户已授权：今后每次有实质代码/文档变更，Agent 在任务收口时**自动负责 Git 检查、提交、推送与版本一致性确认**，不必等用户再次提醒。执行规则：
+
+1. 开工前运行 `git fetch --prune origin`，检查当前分支、工作区和与远端的 ahead/behind；发现未知改动或分叉立即暴露，不覆盖、不静默处理。
+2. 常规开发使用 feature 分支，PR 合入 `main`；除仓库初始化或用户明确授权的场景外，不直接推 `main`，不 force push。
+3. 提交前运行 `scripts/ip_firewall_check.sh` 与本次改动最相关的验证：Xcode 工程优先用 `xcodebuild`，Swift Package 才用 `swift test`。
+4. 只暂存本次任务相关文件；`Config/Secrets.xcconfig`、`Config/Persona.local.json`、`.kiro/pet/` 与任何密钥永不提交。
+5. 自动创建清晰 commit，推送当前分支；随后 `git fetch origin` 并比较本地 `HEAD` 与对应 `origin/<branch>`。哈希一致才可宣称「两端已同步」。
+6. 若远端领先、push 被拒、测试失败、需重写历史或发生冲突，停止并向用户说明；严禁用 force/reset --hard 静默兜底。
+7. **不使用 PostFileSave/Stop 钩子盲目自动 commit/push**：它可能推送半成品或密钥。自动化由 Agent 在验证通过后的任务收口阶段执行。
+8. 版本更迭：普通 commit 不滥升版本；准备可分发 build 时自动递增 build number，营销版本按实际 release scope 使用语义化版本，并在 commit/tag 中记录。
 
 ---
 

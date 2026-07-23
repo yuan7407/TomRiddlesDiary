@@ -47,6 +47,8 @@ build_list() {
   for d in "${EXCLUDE_DIRS[@]}"; do
     args+=(-not -path "./$d/*")
   done
+  # Xcode 用户态文件不会入库，也可能是二进制；无论嵌套层级都跳过。
+  args+=(-not -path "*/xcuserdata/*")
   find "${args[@]}"
 }
 

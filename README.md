@@ -15,11 +15,12 @@
 ```
 CLAUDE.md              项目开发规范（L0，权威规则）
 .claude/agents/        Agent 系统提示词（ios-dev / ai-pipeline-dev / backend-dev / qa-reviewer）
+.kiro/steering/        Kiro 始终加载的项目规则（含安全 Git 自动同步）
 memory/                跨会话记忆（MEMORY.md + topics/ + daily/ + archives/）
 docs/                  架构 / riddle 参考 / 源想法文档
 Config/                Secrets 与 Persona 配置（真值 gitignored）
 scripts/               ip_firewall_check.sh 门禁 + stroke_spike/（Task 1 实验）
-（Xcode 工程 TomRiddlesDiary/ 由用户手建：iPadOS 17+ / SwiftUI / PencilKit）
+TomRiddlesDiary/        Xcode 工程（iPadOS 17+ / SwiftUI / PencilKit）
 ```
 
 App target 目标结构：`App / Features(Canvas·Response·Diary) / Oracle(Provider·Router·Persona) / StrokeEngine / Data / DesignSystem`（见 [`docs/architecture.md`](./docs/architecture.md)）。
@@ -28,9 +29,10 @@ App target 目标结构：`App / Features(Canvas·Response·Diary) / Oracle(Prov
 
 1. **密钥**：`cp Config/Secrets.example.xcconfig Config/Secrets.xcconfig`，填入阿里云百炼 DashScope key。`Secrets.xcconfig` 已 gitignore。
 2. **Persona（本地测试）**：`cp Config/Persona.example.json Config/Persona.local.json`，`Persona.local.json` 已 gitignore。
-3. **提交门禁**：`bash scripts/ip_firewall_check.sh`（IP 禁用词 + 密钥入库检查）。
-4. **Task 1 笔画实验**：见 [`scripts/stroke_spike/README.md`](./scripts/stroke_spike/README.md)。
-5. **Xcode 工程**：由用户手建（名 `TomRiddlesDiary`），agent 填 `.swift` 源码。
+3. **Xcode**：打开 `TomRiddlesDiary/TomRiddlesDiary.xcodeproj`，scheme 选 `TomRiddlesDiary`；目标为仅 iPad、iPadOS 17+。
+4. **无签名构建**：`xcodebuild -project TomRiddlesDiary/TomRiddlesDiary.xcodeproj -scheme TomRiddlesDiary -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build`。若 Xcode 报 platform 未安装，在 **Xcode → Settings → Components** 安装对应 iOS platform/runtime 后重试。
+5. **提交门禁**：`bash scripts/ip_firewall_check.sh`（IP 禁用词 + 密钥入库检查）。
+6. **Task 1 笔画实验**：见 [`scripts/stroke_spike/README.md`](./scripts/stroke_spike/README.md)。
 
 ## ⚠️ 安全红线
 

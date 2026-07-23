@@ -68,6 +68,13 @@ scripts/stroke_spike/output/
 *.tmp
 *.log
 
+# ---- Kiro 项目配置 ----
+# kiro-pet 属于独立项目 /Users/envision/Documents/Personal_Docs/110_KiroPet，绝不回流本仓库。
+# 保留 .kiro/steering 等本项目配置，只排除宠物运行时与钩子。
+.kiro/pet/
+.kiro/hooks/kiro-pet-*.json
+kiro-pet/
+
 # ---- IDE ----
 .idea/
 *.swp
