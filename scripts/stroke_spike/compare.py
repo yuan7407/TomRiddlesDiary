@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """Task 1 笔画方案对比实验（spike）。
 
-同一素材，两条源各跑一遍，都套同一个 humanizer（压感近似/速度/抖动），
-输出「逐笔生长」的动画 SVG，肉眼比较手绘感：
+同一素材的两种表示各跑一遍，都套同一个 humanizer（重采样/速度/抖动），
+输出「逐笔生长」的动画 SVG，肉眼比较管道差异：
 
-  源①「直接 SVG」   : input/<name>.svg  → 解析路径 → 有序笔画
-  源②「生成图抽骨架」: input/<name>.png  → Zhang-Suen 抽骨架 → 理笔顺
+  源①「直接 SVG」: input/<name>.svg → 解析路径 → 有序笔画
+  源②「线稿抽骨架」: input/<name>.png → Zhang-Suen 抽骨架 → 理笔顺
 
-这是 Python 探针，不是最终实现。最终 StrokeEngine 在 App target 内用 Swift 重写。
+当前探针使用固定线宽，不模拟压感或收笔；它只做机械预检，不代表最终手感。
+最终 StrokeEngine 会在 App target 内用 Swift 实现。
 """
 from __future__ import annotations
 

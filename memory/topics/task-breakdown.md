@@ -1,23 +1,56 @@
-# 任务分解（12 步，测试驱动、每步可演示）
+# 正式开发任务分解（12 步，逐步验证、每步可演示）
 
-1. **项目骨架 + 护栏 + 笔画对比实验（定架构）**：同 10 组素材两条源各跑一遍（①直接 SVG ②生成图抽骨架），都套压感/速度，肉眼选源。
-2. **抽骨架 Skeletonizer**（Zhang-Suen，纯逻辑 TDD）。
-3. **骨架 → 有序笔画 StrokeTracer**（TDD）。
-4. **人性化 + 逐笔重播**（压感/收笔/速度/抖动，strokeEnd 动画）。魔法视觉内核，先于 AI。
-5. **PencilKit 画布 + 抬笔成页 + 墨水淡入**。
-6. **OracleProvider 协议 + Mock + 离线全链路**（首个垂直切片）。
-7. **真实理解层**（QwenProvider 用 Qwen-VL，客户端直连，key 在 gitignored Secrets.xcconfig）。
-8. **真实图像回传**（Qwen-Image 生成线稿，提示词强约束「干净黑线稿、白底、无阴影」利于抽骨架）。完整 Go/Kill 魔法时刻。
-9. **Persona 包 + IP 防火墙门禁**。
-10. **本地加密存档 + 时间线 + 召回旧页**。
-11. **端点路由 + 海外升级 provider 留桩**。
-12. **骨架收口 + 世界观内降级 + 发布前门禁 + AI 披露**。
+> **当前确认门**：开发前准备与 Task 1A 已完成，但用户尚未选择“严格路线”或“并行路线”。在用户明确选择前，不开始第 2 步，也不修改任何 App 功能源码。
 
-## 落盘顺序（kickoff, section 11）
+## 当前证据边界
 
-1. `.gitignore`（防泄漏优先）✅
-2. 整体替换 `CLAUDE.md` ✅
-3. 建骨架：`.claude/agents/*`、`memory/`、`docs/`、`Config/`、`scripts/`、`README.md`（进行中）
-4. GitHub：yuan7407 下新建私有仓库 → git init → 确认无密钥入库 → 首次提交 → 加 SSH remote → push → 回填 remote 进 CLAUDE.md（**待用户确认**）
-5. Task 1：Python venv 装 scikit-image/Pillow/numpy/svgpathtools，跑笔画对比实验
-6. Xcode 工程由用户手建，agent 填源码
+### Task 1A — 机械管道预检（已完成）
+
+- 10 组 GPT-5.6 编写的确定性夹具，每组由同一批有序线条生成 SVG + PNG。
+- 两条本地管道均可运行：SVG 解析路径；PNG 抽骨架/理笔顺。
+- 20 个动画 SVG 均非空；输入 ID、尺寸、path 和输出数已验证。
+- 当前 Python humanizer 只有重采样、固定种子抖动和按长度/扰动计算时长；输出固定线宽，**没有压感或收笔模拟**。
+- 这些结果只证明机械 smoke test，不证明视觉手感、情绪理解或 Qwen 效果。
+
+### Task 1B — 真实模型预检（待用户选择是否先做）
+
+- 输入：至少 10 张不同表达的真实用户涂鸦。
+- 输出：真实视觉理解 + 图像生成回应，分别经过可比较的笔画源。
+- 判断：由用户肉眼比较；至少 3–4 组产生明确“哦……”感才算初步 Go。
+- 前置：用户创建 Qwen Key 并确定区域；永久 Key 仅限本地非分发 DEBUG，TestFlight 前必须切到安全后端。
+
+### 第 8 步 — App 内完整 Go/Kill（与 1B 不同）
+
+Task 1B 比较离线/脚本层的真实模型素材；第 8 步评审的是 App 内完整 Oracle + StrokeEngine + 节奏 + 降级体验。两者不能互相替代。
+
+## 12 步计划
+
+1. **项目骨架、护栏与笔画对比实验**：1A 机械预检已完成；1B 真实模型预检待路线选择。
+2. **Skeletonizer**：用 Swift 实现 Zhang-Suen，纯逻辑验证。
+3. **StrokeTracer**：单像素骨架转有序笔画，处理端点、交叉和环。
+4. **StrokeHumanizer + 逐笔重播**：压感、收笔、速度、抖动和 `strokeEnd` 动画，形成 Magic Stroke Lab。
+5. **PencilKit 画布**：抬笔静置成页、重新落笔取消、墨水淡入。
+6. **OracleProvider + Mock**：离线打通首个 App 垂直切片，不依赖真实 Key。
+7. **真实视觉理解**：接 Qwen provider；本地非分发 DEBUG 可受限实验，任何分发前改为安全后端/短期凭证。
+8. **真实图像回应 + App 内 Go/Kill**：Qwen 线稿进入 StrokeEngine，评审完整魔法时刻。
+9. **Persona 包 + IP 防火墙**：配置可替换、环境门控、公开品牌原创化。
+10. **本地加密存档**：时间线、召回旧页、记忆开关、一键遗忘/删除。
+11. **端点路由**：区域配置、provider 留桩与可观测性，不预设未经核实的网络/驻留结论。
+12. **收口与发布门禁**：诚实降级、AI 披露、危机兜底、隐私/删除、分发安全与真实设备验证。
+
+## 等用户选择的启动方式
+
+### A. 严格路线
+
+先完成 Task 1B：申请 Qwen Key → 准备真实用户涂鸦 → 生成真实回应 → 比较源并做初步 Go/Kill。通过后再进入第 2 步。
+
+### B. 并行路线
+
+用户明确批准后，先用现有夹具开发第 2–4 步 **Magic Stroke Lab**，同时准备真实 Qwen 素材；笔画源结论保持开放，不能把夹具结果当最终选型。
+
+## 已完成的 kickoff（历史）
+
+- 仓库、`.gitignore`、规则、memory/docs/agents/Config/scripts/README 已落盘。
+- GitHub private remote 已配置并同步；Xcode 工程已纳入根仓库。
+- iPadOS 17+ / iPad-only 设置与无签名 Simulator build 已验证。
+- 开发前准备完成后，仍必须停下来向用户确认本页 A/B 路线。

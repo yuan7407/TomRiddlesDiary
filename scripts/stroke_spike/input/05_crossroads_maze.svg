@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="640" viewBox="0 0 640 640">
+  <metadata>{"id": "05_crossroads_maze", "emotion": "迷茫、选择过多、寻找方向", "representation": "抽象几何 / 迷宫 / 分叉叙事", "prompt": "A single path enters a square maze and splits into three imperfect exits."}</metadata>
+  <rect width="640" height="640" fill="#ffffff"/>
+  <path d="M 320.0 575.0 L 320.0 510.0 L 265.0 470.0 L 265.0 412.0 L 365.0 412.0 L 365.0 350.0 L 225.0 350.0 L 225.0 275.0 L 420.0 275.0 L 420.0 205.0 L 305.0 205.0 L 305.0 130.0" fill="none" stroke="#181818" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M 320.0 510.0 L 405.0 475.0 L 455.0 425.0 L 505.0 425.0" fill="none" stroke="#181818" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M 265.0 470.0 L 190.0 466.0 L 145.0 425.0 L 95.0 425.0" fill="none" stroke="#181818" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M 145.0 185.0 L 145.0 515.0 L 495.0 515.0" fill="none" stroke="#181818" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M 495.0 515.0 L 495.0 145.0 L 205.0 145.0" fill="none" stroke="#181818" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M 205.0 145.0 L 205.0 220.0 L 430.0 220.0" fill="none" stroke="#181818" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M 95.0 425.0 L 75.0 410.0 L 95.0 395.0" fill="none" stroke="#181818" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M 505.0 425.0 L 525.0 410.0 L 505.0 395.0" fill="none" stroke="#181818" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M 305.0 130.0 L 290.0 105.0 L 320.0 105.0 L 305.0 130.0" fill="none" stroke="#181818" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
