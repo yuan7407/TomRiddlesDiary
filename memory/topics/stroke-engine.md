@@ -43,3 +43,15 @@
 ## 关键设计原则
 
 源可插拔；算法可单测；手感必须在真实设备上主观评审；固定夹具用于回归，不用于证明情感质量；隐私和供应商处理结论由 `AGENTS.md` 的证据规则约束。
+## Swift Route B 实现（Tasks 2–4 已完成）
+
+- `StrokeModels`：`BinaryMask`、`GridPoint`、`Point2D`、`Polyline` 等纯值类型。
+- `Skeletonizer`：标准 Zhang–Suen 两阶段细化；不改变尺寸、不新增前景、结果幂等。
+- `StrokeTracer`：确定性 8 邻接无向图；端点优先、junction 分段、degree-two cycle fallback，每条边恰好访问一次，孤立像素保留为 dot stroke。
+- `StrokeHumanizer`：固定 seed 可复现；等距重采样、端点不漂移、高斯抖动、压感范围与起落笔 taper、按长度计算时长。
+- `StrokeReplayTimeline`：每笔严格串行，前一笔完成前后一笔进度保持 0。
+- `StrokePipeline`：`.raster(BinaryMask)` 走 Skeletonizer + Tracer，`.ordered([Polyline])` 直接进入共享 Humanizer；最终真实源仍可替换。
+- XCTest 共 41 个：Skeletonizer 9、Tracer 8、Humanizer 9、Replay 8、Pipeline 3、Lab ViewModel 4；当前全量通过。
+- `Features/StrokeLab` 使用 3 个代表性离线夹具演示双源、压力线宽与逐笔重播；不包含模型、网络或密钥。
+
+这些证据证明 Swift 本地管道行为与演示可运行，不证明真实设备手感、模型情绪理解、最终源选择或完整产品 Go/Kill。

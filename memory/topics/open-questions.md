@@ -1,15 +1,12 @@
 # 尚未解决 / 需要问用户的问题
 
-## 正式开发前的当前确认
+## 当前未决事项
 
-1. **路线选择**：
-   - A 严格路线：先申请 Qwen Key + 准备真实用户涂鸦，完成 Task 1B；
-   - B 并行路线：先批准 Task 2–4 Magic Stroke Lab，同时等待真实 Qwen 素材。
-   在用户明确选择前，不开始 App 功能开发。
-2. **真实测试涂鸦**：10 组确定性工程夹具已完成，但真实用户涂鸦尚未准备；两者不能互相冒充。
-3. **Qwen 区域/Workspace**：到真实模型测试前决定，并核对模型、价格、网络和数据条款。Key 当前不阻塞本地笔画开发。
-4. **正式 bundle ID / 主体 / 公开品牌**：当前为 Xcode 占位 `TomRiddlesDiary.TomRiddlesDiary`。在注册 App ID/App Store 记录前，由用户决定个人或组织主体、长期可控反向域名与原创品牌。
-5. **笔画源最终选择**：SVG 与图像抽骨架须等真实模型素材和主观评审；Task 1A 机械跑通不等于选型完成。
+1. **真实测试涂鸦 / Task 1B**：10 组确定性工程夹具与 Route B Lab 已完成，但真实用户涂鸦尚未准备；两者不能互相冒充。
+2. **Qwen 区域/Workspace**：到真实模型测试前决定，并重新核对模型可用性、价格、网络和数据条款。Key 当前不阻塞本地笔画开发。
+3. **正式 bundle ID / 主体 / 公开品牌**：当前为 Xcode 占位 `TomRiddlesDiary.TomRiddlesDiary`。在注册 App ID/App Store 记录前，由用户决定个人或组织主体、长期可控反向域名与原创品牌。
+4. **笔画源最终选择**：ordered vector 与 raster 抽骨架已通过同一 Swift Pipeline 可比较，但最终选择仍须等真实模型素材和主观评审；机械跑通不等于选型完成。
+5. **真实设备手感**：Simulator 已验证构建、启动与首屏显示；Apple Pencil 压感观感、节奏和“魔法感”仍需 iPad 真机主观评审。
 
 ## 后续但现在不阻塞
 
@@ -19,9 +16,11 @@
 
 ## 已解决
 
+- 用户已选择 **B 并行路线**；无需再次询问是否可以开始 Tasks 2–4。
+- Swift Tasks 2–4 与可演示 Magic Stroke Lab 已完成，且保持 raster/ordered 源可插拔。
 - GitHub private remote、根仓库与 Xcode 工程已统一管理并同步。
 - iOS platform/runtime 安装完成；iPadOS 17+ 无签名 Simulator Debug build 成功。
-- 10 组同源 SVG/PNG 机械夹具与 20 个动画输出已验证。
+- 10 组同源 SVG/PNG 机械夹具与 20 个 Python 动画输出已验证。
 - Kiro/GPT 规则使用根 `AGENTS.md`；不创建 `GPT.md`，`CLAUDE.md` 只作兼容入口。
 - Git 收口流程由 `.kiro/steering/git-sync.md` 管理，Agent 自动安全同步，不使用保存/停止盲推钩子。
 

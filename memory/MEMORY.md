@@ -3,14 +3,15 @@
 
 ## Project State（当前状态）
 
-- **阶段**：正式功能开发前准备已基本完成，正在最终验证与 Git 同步；必须等用户确认并选择开发路线后才修改 App 功能。
-- **App 现状**：`ContentView.swift` 仍为 Xcode 默认 `Hello, world!`，尚未开始正式功能开发。
-- **仓库**：private `git@github.com:yuan7407/TomRiddlesDiary.git`；`main` 远端基线为 `e8cb486`，本轮准备工作在 feature 分支收口，不直接推 main。
-- **Xcode**：`TomRiddlesDiary/TomRiddlesDiary.xcodeproj`；仅 iPad、iPadOS 17+、Automatic signing、占位 bundle ID `TomRiddlesDiary.TomRiddlesDiary`、未设置 Development Team。安装 iOS platform/runtime 后，无签名 Simulator Debug 构建已 `BUILD SUCCEEDED`；之前的 platform blocker 已解除。
-- **Task 1A 机械预检**：Python 3.10.6 + 精确锁定依赖；10 组 GPT-5.6 编写的确定性同源 SVG/PNG 夹具生成完成，20 个非空动画输出验证通过。当前 spike 只有重采样、速度扰动和抖动，固定线宽，不模拟压感/收笔。
+- **阶段**：用户已明确选择 B 并行路线；Swift Tasks 2–4 与离线 Magic Stroke Lab 已完成，正在 feature 分支 `feature/magic-stroke-lab` 做最终门禁与同步，不直接推 main。
+- **App 现状**：`ContentView.swift` 已从默认占位改为 iPad Magic Stroke Lab；可切换 `01_weary_flower`、`04_anger_cage`、`05_crossroads_maze`，比较 Vector/Raster 源并逐笔重播。
+- **StrokeEngine**：纯 Swift `Skeletonizer → StrokeTracer → StrokeHumanizer → StrokeReplayTimeline` 已落地；固定 seed、端点不漂移、压感 taper、长度时序和 raster/ordered 双源均有 XCTest。全量 41 tests、0 failures。
+- **演示验证**：generic iOS Simulator build 成功；App 已安装并启动到 iPad (A16)，首屏截图确认控件、统计和线稿正常显示。该检查不等于真实设备手感或情绪质量通过。
+- **Xcode**：`TomRiddlesDiary/TomRiddlesDiary.xcodeproj`；仅 iPad、iPadOS 17+、Automatic signing、占位 bundle ID `TomRiddlesDiary.TomRiddlesDiary`、未设置 Development Team。Xcode 26.6 并行 test clone 存在工具崩溃，测试须使用 `-parallel-testing-enabled NO`。
+- **Task 1A 机械预检**：Python 3.10.6 + 精确锁定依赖；10 组 GPT-5.6 编写的确定性同源 SVG/PNG 夹具和 20 个动画输出已验证。Python spike 固定线宽；Swift Lab 新增压感/收笔时序，但仍不能替代真实素材评审。
 - **Task 1B 真实模型预检**：未完成。夹具不是 Qwen-Image 输出，也不能证明 AI 理解情绪；仍需真实用户涂鸦 + Qwen 回应后肉眼选源。
 - **规则架构**：根 `AGENTS.md` 是 Kiro/GPT/Claude 共用的详细权威规则；`CLAUDE.md` 仅兼容入口；`.kiro/steering/git-sync.md` 只管 Git 专项流程；不创建 `GPT.md`。
-- **Qwen Key**：当前本地笔画预检不需要。真实 Qwen 测试前由用户登录阿里云创建；永久 Key 不进入可分发客户端，TestFlight 前必须接安全后端或最小权限短期凭证。
+- **Qwen Key**：当前 Route B Lab 不需要，也未接入任何模型/网络。真实 Qwen 测试前由用户登录阿里云创建；永久 Key 不进入可分发客户端，TestFlight 前必须接安全后端或最小权限短期凭证。
 - **Apple 账号**：现在不需要购买 $99/年会员，也不需要 TestFlight；Simulator 与免费 Personal Team 足够当前阶段。正式 bundle ID、主体和公开品牌尚未决定。
 
 ## Product North Star
@@ -19,13 +20,12 @@
 - AI/Oracle 决定“画什么”；本地 StrokeEngine 决定“像不像手画的”。
 - 情感检验：换一张涂鸦，回应必须明显不同；技术跑通不等于魔法体验通过。
 
-## Next User Decisions（正式开发前必须询问）
+## Next User Decisions
 
-1. 选择开发路线：
-   - **严格路线**：先申请 Qwen Key、准备真实用户涂鸦，完成 Task 1B 后再写 App；
-   - **并行路线**：先批准用现有夹具开发 Task 2–4 本地 Magic Stroke Lab，同时等待真实模型素材。
-2. 到签名/发布阶段前决定正式 bundle ID、个人或组织主体与原创公开品牌。
-3. 到真实 Oracle 接入前决定阿里云区域/Workspace，并重新核对模型可用性、价格、网络和数据条款。
+1. Route B Tasks 2–4 收口后，确认下一步是第 5 步 PencilKit 画布，还是先补 Task 1B 真实模型素材与初步 Go/Kill。
+2. Task 1B 前准备至少 10 张不同表达的真实用户涂鸦；离线工程夹具不能替代。
+3. 到签名/发布阶段前决定正式 bundle ID、个人或组织主体与原创公开品牌。
+4. 到真实 Oracle 接入前决定阿里云区域/Workspace，并重新核对模型可用性、价格、网络和数据条款。
 
 ## User Preferences
 
@@ -33,7 +33,7 @@
 - 深度、全面、客观；区分已验证事实、假设与待用户决定。
 - 不替用户拍板命名、正式 bundle ID、商业品牌、付费或架构方向。
 - 不静默兜底；阻塞、测试失败、远端分叉和未知信息必须暴露。
-- 用户要求“准备完成后先确认”，所以不得提前开发正式 App 功能。
+- 用户已选择 B 并行路线；本轮授权范围为 Tasks 2–4 Magic Stroke Lab。完成并同步后，应让用户确认下一步是 Task 5 还是 Task 1B，而不是自动接入真实模型。
 - 每次实质任务收口自动执行安全 Git fetch/验证/commit/push/hash 核对；默认 feature 分支/PR，不 force push。
 
 ## Known Pitfalls
@@ -72,6 +72,7 @@
 - README 补齐 Qwen Key、区域安全、bundle ID、Development Team、免费 Personal Team、$99 会员和 TestFlight 时机。
 - 规则迁移至 `AGENTS.md`；审核并统一旧 Agent/架构文档的密钥和数据证据口径。
 - 修复 IP 门禁遍历 `.venv`/二进制和误报 `AGENTS.md` 的问题；门禁重新通过。
+- 用户选择 B 并行路线；完成 Swift Tasks 2–4、41 个 XCTest 与可启动的 iPad Magic Stroke Lab，保持 raster/ordered 双源可插拔且未接入模型或网络。
 
 ### 2026-07-15
 

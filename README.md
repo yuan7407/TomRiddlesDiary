@@ -2,21 +2,22 @@
 
 成人向 iPad 情感反思日记 App：用户用 Apple Pencil 手绘涂鸦，一个「会回应的日记之魂」用文字与 AI 生成图像、以**逐笔生长的手绘笔触**画/写回来。载体为 iPad + 类纸膜。
 
-> 私有项目，当前处于**正式功能开发前的准备阶段**。模型无关的权威开发规则见 [`AGENTS.md`](./AGENTS.md)；[`CLAUDE.md`](./CLAUDE.md) 仅作为兼容入口。
+> 私有项目，用户已选择 **B 并行路线**：先完成本地 Tasks 2–4 Magic Stroke Lab，同时保留真实模型素材与最终笔画源选择。模型无关的权威开发规则见 [`AGENTS.md`](./AGENTS.md)；[`CLAUDE.md`](./CLAUDE.md) 仅作为兼容入口。
 
 ## 当前状态（2026-07-23）
 
 | 项目 | 状态 | 说明 |
 |---|---|---|
-| Xcode / iOS Simulator | ✅ 就绪 | iPadOS 17+、仅 iPad；无签名 Simulator 构建已显示 `BUILD SUCCEEDED` |
-| App 功能 | ⏸️ 尚未开始 | 仍是 Xcode 默认 `Hello, world!`；这是按用户要求暂停，不是遗漏 |
-| Task 1 本地笔画预检 | ✅ 机械 smoke test 完成 | 10 组确定性 SVG+PNG 夹具生成了 20 个非空动画；尚未证明视觉手感或选定笔画源 |
-| Task 1 真实魔法评审 | ⏳ 待做 | 夹具不是 Qwen-Image 输出，也不能证明 AI 读懂情绪；仍需真实用户涂鸦 + Qwen 回应 |
-| Qwen API Key | 当前不阻塞 | 本地笔画预检不需要；真实 Qwen 测试前由用户登录阿里云申请，Agent 无法代办 |
+| Xcode / iOS Simulator | ✅ 就绪 | iPadOS 17+、仅 iPad；共享 scheme、正式 XCTest target、无签名 Simulator build 均已验证 |
+| App 功能 | ✅ Route B Lab 可演示 | `ContentView` 已承载离线 Magic Stroke Lab，可切换 3 个夹具与 Vector/Raster 两条源、查看统计并逐笔重播 |
+| Swift Tasks 2–4 | ✅ 已实现 | Zhang–Suen Skeletonizer、确定性 StrokeTracer、seeded Humanizer、压感 taper、严格串行 timeline 与可插拔 Pipeline；41 个 XCTest 全通过 |
+| Task 1A 本地预检 | ✅ 机械 smoke test 完成 | 10 组确定性 SVG+PNG 夹具生成了 20 个非空动画；Python 探针仍是固定线宽，不能证明最终手感或选定笔画源 |
+| Task 1B 真实模型预检 | ⏳ 待做 | 夹具不是 Qwen-Image 输出，也不能证明 AI 读懂情绪；仍需真实用户涂鸦 + Qwen 回应后肉眼比较 |
+| Qwen API Key | 当前不阻塞 | Route B Lab 无模型、密钥或网络；真实 Qwen 测试前由用户登录阿里云申请，Agent 无法代办 |
 | Apple 付费会员 / TestFlight | 现在不需要 | 当前 Simulator 与个人真机开发可先使用免费 Apple Account |
-| 正式开发 | 等用户确认 | 完成本页所述准备与 Git 同步后，再由用户选择从 12 步计划的哪一步开始 |
+| 下一开发步 | ⏭️ Task 5 | PencilKit 画布、抬笔成页、重新落笔取消与墨水淡入；不因 Lab 完成而跳过真实体验评审 |
 
-最近一次构建只有一条非阻塞提示：工程没有依赖 `AppIntents.framework`，因此跳过 App Intents metadata extraction。空白脚手架阶段这是预期行为。
+最近一次构建只有一条非阻塞提示：工程没有依赖 `AppIntents.framework`，因此跳过 App Intents metadata extraction；当前功能不使用 App Intents，这是预期行为。
 
 ## 核心分工
 
@@ -109,7 +110,7 @@ bash scripts/ip_firewall_check.sh
 ### 永久 Key 与临时 Key
 
 - **永久 API Key 不得放入可分发 iOS App。** 即使文件被 `.gitignore` 排除，编译进 App 后仍可能被逆向或从流量中提取。
-- `Config/Secrets.example.xcconfig` 只是模板；真实值可放入被忽略的 `Config/Secrets.xcconfig`，仅供不分发的本地 DEBUG/实验使用。当前空白 App 尚未接线读取它。
+- `Config/Secrets.example.xcconfig` 只是模板；真实值可放入被忽略的 `Config/Secrets.xcconfig`，仅供不分发的本地 DEBUG/实验使用。当前 Magic Stroke Lab 未接线读取它，也不包含任何模型调用。
 - TestFlight 与正式分发前必须使用安全后端：永久 Key 只留在服务端，客户端通过后端业务接口调用；或者由后端按需签发短期凭证。
 - 阿里云官方的 [临时 API Key 指南](https://help.aliyun.com/en/model-studio/application-obtain-temporary-authentication-token) 明确建议浏览器/移动 App 等不可信环境由安全后端生成临时 Key。临时 Key 默认 60 秒，可配置 1–1800 秒，并继承用于签发它的永久 Key 权限，因此服务端仍需做最小权限、速率限制和滥用防护。
 
@@ -144,15 +145,15 @@ Apple Developer Program 为 **99 USD/会员年度**（部分地区以当地货�
 4. AI 披露、删除数据、危机兜底、隐私说明等发布门禁已具备；
 5. 用户明确需要邀请其他人远程测试。
 
-Apple [TestFlight 官方页](https://developer.apple.com/testflight/) 当前说明：每个开发团队最多可添加 100 名符合角色要求的内部测试者、最多 10,000 名外部测试者；外部测试组的首个 build 需先通过 TestFlight App Review。现在仍是默认 `Hello, world!`，没有上传 TestFlight 的价值。
+Apple [TestFlight 官方页](https://developer.apple.com/testflight/) 当前说明：每个开发团队最多可添加 100 名符合角色要求的内部测试者、最多 10,000 名外部测试者；外部测试组的首个 build 需先通过 TestFlight App Review。当前已有本地 Magic Stroke Lab，但尚未完成 PencilKit → Oracle → StrokeEngine 垂直切片、分发安全和真实设备体验验证，因此仍不应上传 TestFlight。
 
 ## 正式开发计划（12 步）
 
-1. 项目骨架、护栏与笔画源对比实验；
-2. `Skeletonizer`（Zhang-Suen）纯逻辑实现；
-3. `StrokeTracer`：骨架转有序笔画；
-4. `StrokeHumanizer` + 逐笔重播；
-5. PencilKit 画布、抬笔成页与墨水淡入；
+1. ✅ 项目骨架、护栏与笔画对比实验：Task 1A 完成，Task 1B 仍待真实素材；
+2. ✅ `Skeletonizer`（Zhang–Suen）纯逻辑实现；
+3. ✅ `StrokeTracer`：骨架转有序笔画；
+4. ✅ `StrokeHumanizer` + 压感/时序 + 严格逐笔重播，并形成离线 Magic Stroke Lab；
+5. ⏭️ PencilKit 画布、抬笔成页与墨水淡入；
 6. `OracleProvider` 协议 + Mock，完成离线垂直切片；
 7. Qwen 视觉理解层；
 8. Qwen 图像回应与完整 Go/Kill 魔法评审；
@@ -161,10 +162,7 @@ Apple [TestFlight 官方页](https://developer.apple.com/testflight/) 当前说�
 11. 区域端点路由与可选海外 provider 留桩；
 12. 降级体验、AI 披露与发布前门禁收口。
 
-完整说明见 [`memory/topics/task-breakdown.md`](./memory/topics/task-breakdown.md)。目前只完成了**开发环境与 Task 1 的机械预检**，尚未开始第 2 步的 Swift 功能开发，也尚未用真实 Qwen 回应完成第 1 步最终“肉眼选源/魔法 Go-Kill”。下一步必须由用户确认：
-
-- **严格路线**：先取得 Qwen Key + 真实用户涂鸦，把 Task 1 的真实对比做完再写 App；或
-- **并行路线**：先用现有夹具开发第 2–4 步本地 Magic Stroke Lab，同时等待真实 Qwen 素材。
+完整说明见 [`memory/topics/task-breakdown.md`](./memory/topics/task-breakdown.md)。用户已明确选择 **B 并行路线**，因此先用现有夹具完成了第 2–4 步，同时让 Task 1B 等待真实 Qwen 素材。这个并行选择不等于最终笔画源已确定，也不等于真实情绪回应或第 8 步完整魔法体验已经 Go；下一步需在第 5 步 PencilKit 与 Task 1B 真实素材之间确认优先级。
 
 ## 安全、IP 与合规底线
 

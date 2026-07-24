@@ -21,7 +21,7 @@
 - **工程/模块名**：`TomRiddlesDiary`。
 - **当前 bundle ID**：Xcode 占位值 `TomRiddlesDiary.TomRiddlesDiary`；正式主体/域名未确定，不得擅自替用户拍板。
 - **签名**：Simulator 可无签名运行；免费 Personal Team 可做短期个人真机测试；TestFlight/分发时再加入 Apple Developer Program。
-- **当前阶段**：开发前准备；App 仍为默认 `Hello, world!`。正式功能开发须等用户明确确认并选择计划起点。
+- **当前阶段**：用户已选择 B 并行路线；Swift Tasks 2–4 与离线 Magic Stroke Lab 已实现并进入验证收口。Task 1B 真实模型素材、最终笔画源、正式品牌与分发决策仍保持开放。
 
 ## 专业身份与产品北极星
 
