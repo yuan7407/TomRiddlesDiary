@@ -24,7 +24,7 @@ EXCLUDE_DIRS=("docs" "memory" ".claude" ".kiro" "kiro-pet"
               "scripts/stroke_spike/out")
 
 # ---- 定义策略本身 / 已 gitignore 的本地配置 ----
-EXCLUDE_FILES=("AGENTS.md" "CLAUDE.md" "README.md"
+EXCLUDE_FILES=("AGENTS.md" "README.md" "MEMORY.md"
                "scripts/ip_firewall_check.sh"
                "Config/Persona.local.json" "Config/Persona.example.json")
 
