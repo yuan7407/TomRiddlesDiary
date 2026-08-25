@@ -1,189 +1,73 @@
 # Tom Riddle's Diary
 
-成人向 iPad 情感反思日记 App：用户用 Apple Pencil 手绘涂鸦，一个「会回应的日记之魂」用文字与 AI 生成图像、以**逐笔生长的手绘笔触**画/写回来。载体为 iPad + 类纸膜。
+成人向 iPad 情感反思日记 App：用户用 Apple Pencil 手绘涂鸦，一个「会回应的日记之魂」用文字与 AI 生成图像、以**逐笔生长的手绘笔触**回应。
 
-> 私有项目，用户已选择 **B 并行路线**：先完成本地 Tasks 2–4 Magic Stroke Lab，同时保留真实模型素材与最终笔画源选择。模型无关的权威开发规则见 [`AGENTS.md`](./AGENTS.md)；[`CLAUDE.md`](./CLAUDE.md) 仅作为兼容入口。
-
-## 当前状态（2026-07-23）
-
-| 项目 | 状态 | 说明 |
-|---|---|---|
-| Xcode / iOS Simulator | ✅ 就绪 | iPadOS 17+、仅 iPad；共享 scheme、正式 XCTest target、无签名 Simulator build 均已验证 |
-| App 功能 | ✅ Route B Lab 可演示 | `ContentView` 已承载离线 Magic Stroke Lab，可切换 3 个夹具与 Vector/Raster 两条源、查看统计并逐笔重播 |
-| Swift Tasks 2–4 | ✅ 已实现 | Zhang–Suen Skeletonizer、确定性 StrokeTracer、seeded Humanizer、压感 taper、严格串行 timeline 与可插拔 Pipeline；41 个 XCTest 全通过 |
-| Task 1A 本地预检 | ✅ 机械 smoke test 完成 | 10 组确定性 SVG+PNG 夹具生成了 20 个非空动画；Python 探针仍是固定线宽，不能证明最终手感或选定笔画源 |
-| Task 1B 真实模型预检 | ⏳ 待做 | 夹具不是 Qwen-Image 输出，也不能证明 AI 读懂情绪；仍需真实用户涂鸦 + Qwen 回应后肉眼比较 |
-| Qwen API Key | 当前不阻塞 | Route B Lab 无模型、密钥或网络；真实 Qwen 测试前由用户登录阿里云申请，Agent 无法代办 |
-| Apple 付费会员 / TestFlight | 现在不需要 | 当前 Simulator 与个人真机开发可先使用免费 Apple Account |
-| 下一开发步 | ⏭️ Task 5 | PencilKit 画布、抬笔成页、重新落笔取消与墨水淡入；不因 Lab 完成而跳过真实体验评审 |
-
-最近一次构建只有一条非阻塞提示：工程没有依赖 `AppIntents.framework`，因此跳过 App Intents metadata extraction；当前功能不使用 App Intents，这是预期行为。
+> 私有项目。权威开发规则见 [`AGENTS.md`](./AGENTS.md)；[`CLAUDE.md`](./CLAUDE.md) 只是兼容入口。项目名与占位 bundle ID 是内部代号，分发前必须换成原创品牌。
 
 ## 核心分工
 
-- **AI 层（Oracle）决定「画什么」**：视觉模型读涂鸦和有限上下文，返回文字与生成图像。
-- **本地笔画引擎决定「像不像手画的」**：抽骨架 → 理笔顺 → 压感/收笔/速度/抖动 → 逐笔重播。
-- 铁律：自然感来自本地引擎，不指望模型直接吐出稳定、自然的最终笔画。
+- **Oracle（AI 层）决定「画什么」**：读涂鸦与受控上下文，返回文字与生成图像。
+- **StrokeEngine（本地）决定「像不像手画的」**：手绘化、压感、收笔、速度、节奏、逐笔重播。
+- 铁律：不指望模型直接输出稳定自然的最终笔画。
 
-## 仓库结构
+## 当前状态（2026-08-25）
+
+| 项 | 状态 |
+|---|---|
+| Xcode / Simulator | ✅ iPadOS 17+、仅 iPad、无签名 Simulator build 通过 |
+| 笔画引擎 | ✅ 有序向量单源：手绘化 + 压感 + 严格串行逐笔重播，23 个 XCTest 全通过 |
+| Magic Stroke Lab | ✅ 可演示，但属开发者诊断界面，不是产品界面 |
+| Task 1B 真实素材验证 | ⏳ 待用户提供手绘 PNG / 真实模型输出样本 |
+| PencilKit / Oracle / Qwen / 网络 / 存储 / 后端 | ❌ 尚未接入 |
+
+位图抽骨架路线（Skeletonizer + StrokeTracer）曾实现并通过测试，因实机线条质量差已整体删除，可在 Git `e08f4c3` 回溯。
+
+## 结构
 
 ```text
-AGENTS.md               所有模型/Agent 共用的权威项目规则
-CLAUDE.md               Claude 类工具的兼容入口，只指向 AGENTS.md
-.claude/agents/         角色提示词（ios / AI pipeline / backend / QA）
-.kiro/steering/         Kiro 自动加载的专项规则（当前含安全 Git 同步）
-memory/                 跨会话状态、决策、专题与工作日志
-docs/                   技术架构与原始规划
-Config/                 Secrets / Persona 模板；真实值由 .gitignore 排除
-scripts/                 IP/密钥门禁 + stroke_spike Task 1 实验
-TomRiddlesDiary/         Xcode 工程（iPadOS 17+ / SwiftUI）
+AGENTS.md                 权威项目规则（含强制注释与修改原因）
+CLAUDE.md                 兼容入口
+.kiro/steering/           Kiro 专项规则（Git 同步）
+memory/                   跨会话状态 + 3 个专题
+Config/                   Secrets / Persona 模板（真实值被 gitignore）
+scripts/ip_firewall_check.sh   IP 与密钥提交门禁
+TomRiddlesDiary/          Xcode 工程（SwiftUI / iPadOS 17+）
 ```
 
-目标 App 模块结构为 `App / Features(Canvas·Response·Diary) / Oracle(Provider·Router·Persona) / StrokeEngine / Data / DesignSystem`，详见 [`docs/architecture.md`](./docs/architecture.md)。
+App 目标模块：`App / Features(Canvas·Response·Diary) / Oracle(Provider·Router·Persona) / StrokeEngine / Data / DesignSystem`。
 
-## 本地环境与验证
+## 运行与验证
 
-### 1. Xcode 工程
-
-打开 `TomRiddlesDiary/TomRiddlesDiary.xcodeproj`，scheme 选择 `TomRiddlesDiary`。当前工程设置：
-
-- Deployment target：iPadOS 17.0
-- Targeted device family：iPad
-- Code signing：Automatic
-- 当前占位 bundle ID：`TomRiddlesDiary.TomRiddlesDiary`
-- `DEVELOPMENT_TEAM`：尚未设置
-
-无需登录 Apple 账号即可运行无签名 Simulator 构建：
+打开 `TomRiddlesDiary/TomRiddlesDiary.xcodeproj`，scheme 选 `TomRiddlesDiary`，选一个 iPad Simulator 后 Run。
 
 ```bash
-xcodebuild \
-  -project TomRiddlesDiary/TomRiddlesDiary.xcodeproj \
-  -scheme TomRiddlesDiary \
-  -configuration Debug \
-  -sdk iphonesimulator \
-  -destination 'generic/platform=iOS Simulator' \
-  CODE_SIGNING_ALLOWED=NO \
-  build
-```
+# 测试（必须关闭并行：Xcode 26.6 并行 clone 会触发工具自身崩溃）
+xcodebuild -project TomRiddlesDiary/TomRiddlesDiary.xcodeproj -scheme TomRiddlesDiary \
+  -configuration Debug -sdk iphonesimulator \
+  -destination 'platform=iOS Simulator,id=<iPad Simulator UUID>' \
+  CODE_SIGNING_ALLOWED=NO -parallel-testing-enabled NO test
 
-若 Xcode 报 platform/runtime 缺失，在 **Xcode → Settings → Components** 安装对应 iOS platform 与 Simulator runtime 后重试。
+# 构建
+xcodebuild -project TomRiddlesDiary/TomRiddlesDiary.xcodeproj -scheme TomRiddlesDiary \
+  -configuration Debug -sdk iphonesimulator \
+  -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
 
-### 2. Task 1 笔画实验
-
-本机预检环境使用 Python 3.10.6；依赖已精确锁定。首次设置：
-
-```bash
-cd scripts/stroke_spike
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install -r requirements.txt
-.venv/bin/python generate_test_assets.py
-.venv/bin/python compare.py
-```
-
-`.venv/` 和 `out/` 均被 Git 忽略。素材来源、10 种表达覆盖、运行方式与限制见 [`scripts/stroke_spike/README.md`](./scripts/stroke_spike/README.md)。
-
-### 3. 提交门禁
-
-```bash
+# 提交门禁
 bash scripts/ip_firewall_check.sh
 ```
 
-它扫描 Git 已跟踪和未被 `.gitignore` 排除的候选文本，检查分发面的 IP 禁用词，并确认敏感本地配置未被跟踪；二进制、构建产物和内部策略文档会跳过。它不能代替人工检查 staged diff。
+预期：`23 tests, 0 failures` 与 `** BUILD SUCCEEDED **`。构建有一条非阻塞提示（未依赖 AppIntents，跳过其 metadata），属预期。
 
-## Qwen API Key：在哪里申请、现在怎么处理
+## 安全底线
 
-### 申请步骤
+- 永久模型 API Key 绝不进入 Git、可分发客户端二进制或客户端可提取流量；TestFlight 前必须走安全后端或最小权限短期凭证。
+- 不读取或提交 `Config/Secrets.xcconfig`、`Config/Persona.local.json`、`.env*`、签名资产、`xcuserdata`。
+- 公开/分发面不得出现未经授权的第三方 IP 名称、图标、截图或关键词；内部占位不等于商业授权。
+- 「数据不出境」「读完即删」等结论必须由最终区域、供应商合同与实现证据支持。
+- 现在不需要购买 Apple Developer Program；Simulator 与免费 Personal Team 足够当前阶段。
 
-1. 登录或创建阿里云账号。
-2. 打开阿里云百炼 / Model Studio，阅读并接受服务条款以开通服务；控制台若要求实名认证，需要由账号持有人完成。
-3. 按阿里云官方的 [Qwen 首次 API 调用指南](https://help.aliyun.com/en/model-studio/first-api-call-to-qwen) 进入 **API Key** 页面。
-4. 点击 **Create API key**，选择实际要调用模型所在的区域/工作空间，然后保存密钥。
-5. 不要把密钥发到聊天、截图、Issue 或 Git。若怀疑泄露，立即在控制台撤销并重建。
+## 更多
 
-### 区域为什么重要
-
-- API Key 按区域区分，不能假定跨区域通用。
-- 官方指南说明，北京、新加坡、东京、法兰克福等部分区域的兼容接口 Base URL 还需要包含 `WorkspaceId`。
-- 模型可用性、价格、网络可达性和数据处理条款可能随区域不同；接入真实模型时必须针对最终区域再次核对，不能只改一个 URL 就假定合规。
-
-### 永久 Key 与临时 Key
-
-- **永久 API Key 不得放入可分发 iOS App。** 即使文件被 `.gitignore` 排除，编译进 App 后仍可能被逆向或从流量中提取。
-- `Config/Secrets.example.xcconfig` 只是模板；真实值可放入被忽略的 `Config/Secrets.xcconfig`，仅供不分发的本地 DEBUG/实验使用。当前 Magic Stroke Lab 未接线读取它，也不包含任何模型调用。
-- TestFlight 与正式分发前必须使用安全后端：永久 Key 只留在服务端，客户端通过后端业务接口调用；或者由后端按需签发短期凭证。
-- 阿里云官方的 [临时 API Key 指南](https://help.aliyun.com/en/model-studio/application-obtain-temporary-authentication-token) 明确建议浏览器/移动 App 等不可信环境由安全后端生成临时 Key。临时 Key 默认 60 秒，可配置 1–1800 秒，并继承用于签发它的永久 Key 权限，因此服务端仍需做最小权限、速率限制和滥用防护。
-
-如果现在只做本地笔画引擎，不必先创建或填写 Qwen Key；到真实 Oracle 接入步骤前再申请即可。
-
-## Bundle ID、Development Team、$99 与 TestFlight
-
-### 四个概念的大白话解释
-
-| 概念 | 是什么 | 当前是否需要 |
-|---|---|---|
-| **Bundle ID** | App 的唯一技术身份证，常用反向域名格式，如 `com.yourcompany.diary`；会关联签名、能力、Keychain 与 App Store 记录 | Simulator 可先用占位值；正式注册 App ID 前应确定 |
-| **Development Team** | Xcode 用哪个 Apple 账号/组织为 App 签名；不是开发人员名单，也不是 bundle ID | 无签名 Simulator 不需要；真机安装时选择 |
-| **免费 Personal Team** | 普通 Apple Account 登录 Xcode 后提供的个人签名队伍 | 足够当前学习、Simulator 和短期个人真机测试 |
-| **Apple Developer Program** | 用于 App Store Connect、TestFlight 与正式分发的付费会员 | 现在不必购买；准备发 beta 时再买 |
-
-当前 `TomRiddlesDiary.TomRiddlesDiary` 是 Xcode 生成的**占位 bundle ID**，不是已确认的商业标识。正式值通常应采用团队可长期控制的反向域名；在用户确定个人/公司主体与命名之前，Agent 不会擅自改成 `com.<team>.tomriddlesdiary`。
-
-### 现在要不要付 99 美元？
-
-**不用。** Apple 官方的 [会员对比](https://developer.apple.com/support/compare-memberships/) 说明：免费 Apple Account 可使用 Xcode、Simulator，也可做个人真机测试。Xcode 的免费 Personal Team 有限制：最多 10 个同时有效的 App ID、每个平台最多 3 台测试设备，App ID/设备注册和 provisioning profile 通常 7 天到期，需要重新构建安装。
-
-Apple Developer Program 为 **99 USD/会员年度**（部分地区以当地货币计价；符合条件的非营利、教育或政府机构可能可申请减免）。它提供 Certificates/Identifiers/Profiles、App Store Connect、TestFlight 和分发能力；参见 Apple 的 [Programs overview](https://developer.apple.com/help/account/membership/programs-overview/)。
-
-### 什么时候才进入 TestFlight？
-
-建议满足以下条件后再购买会员并上传 TestFlight：
-
-1. 本地笔画引擎与离线垂直切片已能稳定演示；
-2. 正式 bundle ID、签名主体和原创公开品牌已确认；
-3. 永久模型 Key 已移到安全后端，分发包不含永久密钥；
-4. AI 披露、删除数据、危机兜底、隐私说明等发布门禁已具备；
-5. 用户明确需要邀请其他人远程测试。
-
-Apple [TestFlight 官方页](https://developer.apple.com/testflight/) 当前说明：每个开发团队最多可添加 100 名符合角色要求的内部测试者、最多 10,000 名外部测试者；外部测试组的首个 build 需先通过 TestFlight App Review。当前已有本地 Magic Stroke Lab，但尚未完成 PencilKit → Oracle → StrokeEngine 垂直切片、分发安全和真实设备体验验证，因此仍不应上传 TestFlight。
-
-## 正式开发计划（12 步）
-
-1. ✅ 项目骨架、护栏与笔画对比实验：Task 1A 完成，Task 1B 仍待真实素材；
-2. ✅ `Skeletonizer`（Zhang–Suen）纯逻辑实现；
-3. ✅ `StrokeTracer`：骨架转有序笔画；
-4. ✅ `StrokeHumanizer` + 压感/时序 + 严格逐笔重播，并形成离线 Magic Stroke Lab；
-5. ⏭️ PencilKit 画布、抬笔成页与墨水淡入；
-6. `OracleProvider` 协议 + Mock，完成离线垂直切片；
-7. Qwen 视觉理解层；
-8. Qwen 图像回应与完整 Go/Kill 魔法评审；
-9. Persona 包与 IP 防火墙；
-10. 本地加密存档、时间线与召回旧页；
-11. 区域端点路由与可选海外 provider 留桩；
-12. 降级体验、AI 披露与发布前门禁收口。
-
-完整说明见 [`memory/topics/task-breakdown.md`](./memory/topics/task-breakdown.md)。用户已明确选择 **B 并行路线**，因此先用现有夹具完成了第 2–4 步，同时让 Task 1B 等待真实 Qwen 素材。这个并行选择不等于最终笔画源已确定，也不等于真实情绪回应或第 8 步完整魔法体验已经 Go；下一步需在第 5 步 PencilKit 与 Task 1B 真实素材之间确认优先级。
-
-## 安全、IP 与合规底线
-
-- 永久模型 Key 不进入 Git、可分发客户端二进制或客户端可直接提取的请求；TestFlight 前安全后端是硬门槛。
-- 公开/分发面不得出现未经授权的华纳 IP 名称、图标、截图、关键词或营销话术；项目内部占位不等于获得商业使用许可。
-- 商业版需要原创「会回应的日记」品牌与世界观。
-- 成人定位、AI 身份披露、危机兜底、一键删除、AI 生成内容标识与区域数据处理要求必须在发布前验证。
-- 任何“数据不出境”“读完即删”等结论都必须以最终供应商区域、合同和实际实现为证据，不在设计文档里提前承诺。
-
-## 规则文件说明
-
-- Kiro/GPT-5.6 使用根目录 [`AGENTS.md`](./AGENTS.md) 作为模型无关的唯一详细规则，不需要创建 `GPT.md`。
-- Kiro 专项规则放在 [`.kiro/steering/`](./.kiro/steering/)；当前 `git-sync.md` 只负责 Git 收口流程，不重复整份项目规范。参见 [Kiro Steering 文档](https://kiro.dev/docs/steering) 与 [Kiro Models 文档](https://kiro.dev/docs/models)。
-- `CLAUDE.md` 保留给会主动读取该文件名的工具，但它不再维护第二份规则全文，避免两份内容逐渐冲突。
-
-## 更多资料
-
-- 技术架构：[`docs/architecture.md`](./docs/architecture.md)
-- 架构决策：[`memory/topics/architecture-decisions.md`](./memory/topics/architecture-decisions.md)
-- 模型选型与未决项：[`memory/topics/model-selection.md`](./memory/topics/model-selection.md)
-- 风险登记：[`memory/topics/risk-register.md`](./memory/topics/risk-register.md)
-- 合规与 IP：[`memory/topics/compliance.md`](./memory/topics/compliance.md)
-
-Content was rephrased for compliance with licensing restrictions.
+- 12 步计划与素材规格：[`memory/topics/task-breakdown.md`](./memory/topics/task-breakdown.md)
+- 引擎实现与验证边界：[`memory/topics/stroke-engine.md`](./memory/topics/stroke-engine.md)
+- 决策、风险、合规与未决项：[`memory/topics/decisions.md`](./memory/topics/decisions.md)

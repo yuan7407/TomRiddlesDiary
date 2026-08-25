@@ -10,8 +10,8 @@
 
 - Git 自动同步专项规则：[`.kiro/steering/git-sync.md`](./.kiro/steering/git-sync.md)
 - 当前项目状态与跨会话记忆：[`memory/MEMORY.md`](./memory/MEMORY.md)
-- 12 步开发计划：[`memory/topics/task-breakdown.md`](./memory/topics/task-breakdown.md)
-- 技术架构：[`docs/architecture.md`](./docs/architecture.md)
+- 12 步开发计划与素材规格：[`memory/topics/task-breakdown.md`](./memory/topics/task-breakdown.md)
+- 决策、风险与未决项：[`memory/topics/decisions.md`](./memory/topics/decisions.md)
 
 规则关系：
 

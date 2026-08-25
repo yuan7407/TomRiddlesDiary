@@ -1,79 +1,54 @@
-<!-- L1 动态记忆；会话开始/“继续”时读取；保持 ≤200 行，细节移到 topics/ -->
+<!-- L1 动态记忆；会话开始或“继续”时先读本文件；保持 ≤120 行，细节进 topics/ -->
 # Tom Riddle's Diary — 项目记忆
 
-## Project State（当前状态）
+## 当前状态
 
-- **阶段**：用户已明确选择 B 并行路线；Swift Tasks 2–4 与离线 Magic Stroke Lab 已完成，正在 feature 分支 `feature/magic-stroke-lab` 做最终门禁与同步，不直接推 main。
-- **App 现状**：`ContentView.swift` 已从默认占位改为 iPad Magic Stroke Lab；可切换 `01_weary_flower`、`04_anger_cage`、`05_crossroads_maze`，比较 Vector/Raster 源并逐笔重播。
-- **StrokeEngine**：纯 Swift `Skeletonizer → StrokeTracer → StrokeHumanizer → StrokeReplayTimeline` 已落地；固定 seed、端点不漂移、压感 taper、长度时序和 raster/ordered 双源均有 XCTest。全量 41 tests、0 failures。
-- **演示验证**：generic iOS Simulator build 成功；App 已安装并启动到 iPad (A16)，首屏截图确认控件、统计和线稿正常显示。该检查不等于真实设备手感或情绪质量通过。
-- **Xcode**：`TomRiddlesDiary/TomRiddlesDiary.xcodeproj`；仅 iPad、iPadOS 17+、Automatic signing、占位 bundle ID `TomRiddlesDiary.TomRiddlesDiary`、未设置 Development Team。Xcode 26.6 并行 test clone 存在工具崩溃，测试须使用 `-parallel-testing-enabled NO`。
-- **Task 1A 机械预检**：Python 3.10.6 + 精确锁定依赖；10 组 GPT-5.6 编写的确定性同源 SVG/PNG 夹具和 20 个动画输出已验证。Python spike 固定线宽；Swift Lab 新增压感/收笔时序，但仍不能替代真实素材评审。
-- **Task 1B 真实模型预检**：未完成。夹具不是 Qwen-Image 输出，也不能证明 AI 理解情绪；仍需真实用户涂鸦 + Qwen 回应后肉眼选源。
-- **规则架构**：根 `AGENTS.md` 是 Kiro/GPT/Claude 共用的详细权威规则；`CLAUDE.md` 仅兼容入口；`.kiro/steering/git-sync.md` 只管 Git 专项流程；不创建 `GPT.md`。
-- **Qwen Key**：当前 Route B Lab 不需要，也未接入任何模型/网络。真实 Qwen 测试前由用户登录阿里云创建；永久 Key 不进入可分发客户端，TestFlight 前必须接安全后端或最小权限短期凭证。
-- **Apple 账号**：现在不需要购买 $99/年会员，也不需要 TestFlight；Simulator 与免费 Personal Team 足够当前阶段。正式 bundle ID、主体和公开品牌尚未决定。
+- **阶段**：B 并行路线。Tasks 2–4 已完成并**单源化**（只保留有序向量），离线 Magic Stroke Lab 可演示。分支 `feature/magic-stroke-lab`，不直接推 main。
+- **App 现状**：`ContentView` 承载 Magic Stroke Lab，可切换 3 个离线夹具并逐笔重播（压感线宽、严格串行）。这是开发者诊断界面，不是产品界面。
+- **StrokeEngine**：`StrokePipeline → StrokeHumanizer → StrokeReplayTimeline`。位图路线（Skeletonizer/Tracer）已于 2026-08-25 整体删除，原因是实机效果差。
+- **验证**：23 个 XCTest 全通过；generic Simulator build 成功；iPad (A16) Simulator 首屏人工确认。测试必须加 `-parallel-testing-enabled NO`（Xcode 26.6 并行 clone 工具崩溃）。
+- **未接入**：PencilKit 用户绘画、Oracle/Qwen、任何网络或密钥、加密存储、后端、TestFlight。
+- **规则**：根 `AGENTS.md` 唯一权威（含强制注释与修改原因规则）；`CLAUDE.md` 只作入口；`.kiro/steering/git-sync.md` 管 Git。
 
-## Product North Star
+## 产品北极星
 
-- 成人向 iPad 情感反思日记：用户用 Apple Pencil 涂鸦，“日记之魂”以文字和 AI 图像、通过逐笔生长的手绘笔触回应。
-- AI/Oracle 决定“画什么”；本地 StrokeEngine 决定“像不像手画的”。
-- 情感检验：换一张涂鸦，回应必须明显不同；技术跑通不等于魔法体验通过。
+成人向 iPad 情感反思日记：用户用 Apple Pencil 涂鸦，日记之魂用文字与 AI 图像、以逐笔生长的手绘笔触回应。最终体验是「打开→引导→画→回应」，用户不应看到任何实验室控件。换一张涂鸦，回应必须明显不同；技术跑通不等于魔法通过。
 
-## Next User Decisions
+## 下一步（等用户决定）
 
-1. Route B Tasks 2–4 收口后，确认下一步是第 5 步 PencilKit 画布，还是先补 Task 1B 真实模型素材与初步 Go/Kill。
-2. Task 1B 前准备至少 10 张不同表达的真实用户涂鸦；离线工程夹具不能替代。
-3. 到签名/发布阶段前决定正式 bundle ID、个人或组织主体与原创公开品牌。
-4. 到真实 Oracle 接入前决定阿里云区域/Workspace，并重新核对模型可用性、价格、网络和数据条款。
+1. Task 5 PencilKit 真实画布（并把 Lab 降为 DEBUG-only），还是 Task 1B 真实模型输出样本验证。
+2. 是否提供第一批手绘 PNG 素材（2048×2048、白底黑线、无阴影）。
+3. 正式 bundle ID、签名主体、原创公开品牌与 Persona。
+4. Qwen 区域/Workspace 及相关条款复核。
 
-## User Preferences
+## 用户偏好
 
-- 中文交流；用大白话解释术语，不甩黑话。
-- 深度、全面、客观；区分已验证事实、假设与待用户决定。
-- 不替用户拍板命名、正式 bundle ID、商业品牌、付费或架构方向。
-- 不静默兜底；阻塞、测试失败、远端分叉和未知信息必须暴露。
-- 用户已选择 B 并行路线；本轮授权范围为 Tasks 2–4 Magic Stroke Lab。完成并同步后，应让用户确认下一步是 Task 5 还是 Task 1B，而不是自动接入真实模型。
-- 每次实质任务收口自动执行安全 Git fetch/验证/commit/push/hash 核对；默认 feature 分支/PR，不 force push。
+- 中文交流，大白话解释术语，需要类比和详细但易懂的说明。
+- 区分「已验证事实 / 合理假设 / 待用户决定」，不混写。
+- 不替用户拍板命名、bundle ID、品牌、付费与架构方向。
+- 不静默兜底：阻塞、测试失败、远端分叉必须暴露。
+- 用户会明确要求「先不要进行下一步」，必须停住等确认。
+- 重视真实可演示，不接受把命令 exit 0 当成体验通过。
+- 每次实质任务收口自动执行安全 Git 同步（fetch/验证/commit/push/hash 核对）。
 
-## Known Pitfalls
+## 已知陷阱
 
-- **kiro-pet** 已迁到 `/Users/envision/Documents/Personal_Docs/110_KiroPet`；本仓库不得重新跟踪相关运行时或钩子。
-- **Xcode 嵌套 Git** 已解除，备份位于根 `.git/xcode-nested-repo-backup-8d5eca1`；项目只使用根仓库。
-- **密钥口径**：禁止的是永久 Key 进入可分发客户端/Git；本地非分发 DEBUG 例外仍必须 gitignored、最小权限/额度/监控，并绝不分发。
-- **隐私承诺**：“读完即删”“不用于训练”“数据不出境”必须由区域、合同和实际实现证明，不能因选择备案模型而预先承诺。
-- **门禁扫描**：`scripts/ip_firewall_check.sh` 使用 Git tracked + non-ignored 候选文本，跳过内部策略、二进制、`.venv` 和构建产物；修改扫描规则后要验证不会超时或误报 `AGENTS.md`。
-- **IP**：内部占位不代表商业授权；公开/分发前必须换原创品牌并人工复核。
+- Xcode 26.6 并行 test clone 触发 `DVTiPhoneSimulator` assertion → 测试关闭并行。
+- Xcode 曾自动建嵌套 Git，已可恢复地移到根 `.git/xcode-nested-repo-backup-8d5eca1`。
+- 工程用 objectVersion 77 + 同步文件组，新增 Swift 文件不需手改 pbxproj。
+- kiro-pet 已迁至 `110_KiroPet`，不得放回本仓库。
+- 密钥口径：禁止永久 Key 进入可分发客户端/Git；本地非分发 DEBUG 例外须 gitignored + 最小权限 + 监控。
+- 隐私承诺（读完即删/不出境）必须有区域、合同与实现证据。
 
-## Architecture Quick Ref
+## 索引
 
-- 三段：成页 → Oracle（文字流式 + 图像并行）→ StrokeEngine（Skeletonizer → StrokeTracer → StrokeHumanizer → 重播）。
-- 模块：`App / Features / Oracle / StrokeEngine / Data / DesignSystem`。
-- 12 步计划与 1A/1B/第 8 步三层验证见 `topics/task-breakdown.md`。
+- `topics/task-breakdown.md` — 12 步计划、当前状态、素材规格
+- `topics/stroke-engine.md` — 引擎实现约束与验证边界
+- `topics/decisions.md` — 决策表、模型/Key 边界、风险、合规、未决项
 
-## Topic Index
+## 历史（精简）
 
-- `topics/task-breakdown.md` — 12 步计划、当前门槛与两条启动路线
-- `topics/architecture-decisions.md` — 核心决策与原因
-- `topics/model-selection.md` — Qwen、区域/Key 与未核实项
-- `topics/stroke-engine.md` — 笔画引擎与 Task 1 证据边界
-- `topics/compliance.md` — IP、密钥、隐私与发布合规
-- `topics/risk-register.md` — 风险与缓解
-- `topics/open-questions.md` — 等用户决定的问题
-- `topics/prompt-tuning.md`、`topics/cost.md` — 后续填充
-
-## Session Log
-
-### 2026-07-23
-
-- GitHub/Xcode 工程纳入根仓库，嵌套 Git 可恢复地解除；远端基线已同步。
-- iOS platform/runtime 安装后，无签名 Simulator Debug 构建成功，旧环境阻塞解除。
-- 完成 10 组确定性 SVG+PNG 工程夹具与 20 个动画输出的机械预检；未冒充 Qwen/情绪评审结果。
-- README 补齐 Qwen Key、区域安全、bundle ID、Development Team、免费 Personal Team、$99 会员和 TestFlight 时机。
-- 规则迁移至 `AGENTS.md`；审核并统一旧 Agent/架构文档的密钥和数据证据口径。
-- 修复 IP 门禁遍历 `.venv`/二进制和误报 `AGENTS.md` 的问题；门禁重新通过。
-- 用户选择 B 并行路线；完成 Swift Tasks 2–4、41 个 XCTest 与可启动的 iPad Magic Stroke Lab，保持 raster/ordered 双源可插拔且未接入模型或网络。
-
-### 2026-07-15
-
-- 完成初始骨架、memory/docs/agents/Config/scripts/README 和首个本地 commit；详见 `daily/2026-07-15.md`。
+- **2026-07-15**：仓库骨架、memory/scripts/Config/README 与首个本地 commit。
+- **2026-07-23**：GitHub 私有远端建立并同步；Xcode 工程纳入根仓库（解除嵌套 Git）；工程修正为 iPadOS 17+ / 仅 iPad；无签名 Simulator build 通过；建立 `AGENTS.md` 统一规则；修复 IP 门禁扫描范围；完成 Python 位图/向量对比 spike（后已删除）。
+- **2026-07-24**：用户选定 B 路线；完成 Tasks 2–4 与 iPad Magic Stroke Lab，41 个测试通过并推送 `e08f4c3`；语义审阅修复边界细化与 60 Hz 空转问题。
+- **2026-08-25**：写入强制注释与修改原因规则（`d05d613`）；按用户判断整体删除位图路线；补齐全部 Swift 文件中文文件头与关键“为什么”注释；合并/删除 11 个冗余文档（4 个角色文件、3 个 docs、2 个 daily、2 个空 topic）与已废弃 Python spike；测试收敛为 23 个并全部通过。

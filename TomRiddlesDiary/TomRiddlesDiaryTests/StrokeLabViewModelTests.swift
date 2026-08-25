@@ -1,3 +1,13 @@
+//
+//  StrokeLabViewModelTests.swift
+//  模块：Tests（StrokeLab 状态与重播生命周期）
+//
+//  文件职责：验证重播会自行收尾、切夹具会取消旧重播、连点重播不会被旧任务清状态。
+//
+//  设计原因：这三条都是曾真实出现过的缺陷（60 Hz 永不停止、过期任务误清状态），
+//  因此按行为而非实现细节固化为回归测试。
+//
+
 @testable import TomRiddlesDiary
 import XCTest
 
@@ -18,15 +28,6 @@ final class StrokeLabViewModelTests: XCTestCase {
                 .frame(at: model.sequence.totalDuration)
                 .isComplete
         )
-    }
-
-    func testChangingSourceCancelsActiveReplay() {
-        let model = makeModel()
-        model.replay()
-
-        model.sourceMode = .raster
-
-        XCTAssertNil(model.replayStartedAt)
     }
 
     func testChangingFixtureCancelsActiveReplay() {

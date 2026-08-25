@@ -1,3 +1,0 @@
-# 把素材放这里：线稿 PNG（源②抽骨架）和/或 SVG（源①直接笔画），同名 stem 便于对比。
-# 例：sad_flower.png + sad_flower.svg
-# out/ 与 .venv/ 已 gitignore。

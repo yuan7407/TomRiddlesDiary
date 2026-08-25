@@ -1,3 +1,15 @@
+//
+//  MagicStrokeLabView.swift
+//  模块：Features/StrokeLab（仅供开发验证的诊断界面，不属于最终用户体验）
+//
+//  文件职责：把夹具选择、统计和重播动作组合成开发者可操作的验证界面。
+//
+//  设计原因：
+//  - 这是工程仪表台，不是产品界面。最终用户体验应为“打开→引导→画→回应”，
+//    不应看到夹具、统计或重播按钮；接入 PencilKit 时这里要降级为 DEBUG-only 工具。
+//  - 明确标注离线：本界面不接模型、网络或密钥，避免把纯本地效果误当成 AI 效果。
+//
+
 import SwiftUI
 
 struct MagicStrokeLabView: View {
@@ -56,21 +68,6 @@ struct MagicStrokeLabView: View {
                     .foregroundStyle(.secondary)
             }
 
-            VStack(alignment: .leading, spacing: 9) {
-                controlLabel("Stroke source")
-                Picker("Stroke source", selection: $model.sourceMode) {
-                    ForEach(StrokeLabSourceMode.allCases) { mode in
-                        Text(mode.rawValue).tag(mode)
-                    }
-                }
-                .pickerStyle(.segmented)
-
-                Text(model.sourceDetail)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
             HStack(spacing: 10) {
                 stat(value: "\(model.sequence.strokes.count)", label: "strokes")
                 stat(value: "\(model.sampleCount)", label: "samples")
@@ -110,12 +107,6 @@ struct MagicStrokeLabView: View {
                 }
 
                 Spacer()
-
-                Text(model.sourceMode.rawValue.uppercased())
-                    .font(.caption2.monospaced().weight(.bold))
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(Color.black.opacity(0.07), in: Capsule())
             }
 
             StrokeCanvasView(

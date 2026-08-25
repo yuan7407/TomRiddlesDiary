@@ -1,3 +1,13 @@
+//
+//  StrokeHumanizerTests.swift
+//  模块：Tests（手绘化算法）
+//
+//  文件职责：验证重采样、端点固定、压感边界、时序与同 seed 可复现。
+//
+//  设计原因：手感无法自动判定“好看”，因此只断言可验证的不变量
+//  （端点不漂移、压感在界内、同 seed 结果一致），主观手感留给真机评审。
+//
+
 @testable import TomRiddlesDiary
 import XCTest
 

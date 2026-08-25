@@ -1,3 +1,12 @@
+//
+//  StrokeReplayTimelineTests.swift
+//  模块：Tests（重播时间轴）
+//
+//  文件职责：验证严格串行——后面的笔在前一笔完成前进度必须为 0，并覆盖零时长与异常时间。
+//
+//  设计原因：串行是“像真人逐笔作画”的核心观感，一旦多笔同时生长，魔法感立刻消失。
+//
+
 @testable import TomRiddlesDiary
 import XCTest
 

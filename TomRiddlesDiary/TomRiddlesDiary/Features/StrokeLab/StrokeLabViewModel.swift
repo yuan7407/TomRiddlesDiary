@@ -1,3 +1,16 @@
+//
+//  StrokeLabViewModel.swift
+//  模块：Features/StrokeLab（仅供开发验证的诊断界面，不属于最终用户体验）
+//
+//  文件职责：持有当前夹具与重播状态，把夹具经 StrokePipeline 转成可重播序列。
+//
+//  设计原因：
+//  - 重播完成用一个可取消的 MainActor 任务收尾，而不是让渲染层永久以 60 Hz 刷新：
+//    画完就该停，否则空转会持续耗电。
+//  - 用 replayStartedAt 时间戳做过期判定：连点重播或播放中切夹具时，
+//    旧任务醒来必须认出自己已过期，不能把新一轮的状态清掉。
+//
+
 import Combine
 import Foundation
 
@@ -6,13 +19,6 @@ final class StrokeLabViewModel: ObservableObject {
     @Published var selectedFixtureID: String {
         didSet {
             guard selectedFixtureID != oldValue else { return }
-            rebuildSequence()
-        }
-    }
-
-    @Published var sourceMode: StrokeLabSourceMode = .orderedVector {
-        didSet {
-            guard sourceMode != oldValue else { return }
             rebuildSequence()
         }
     }
@@ -52,15 +58,6 @@ final class StrokeLabViewModel: ObservableObject {
         sequence.strokes.reduce(into: 0) { $0 += $1.samples.count }
     }
 
-    var sourceDetail: String {
-        switch sourceMode {
-        case .orderedVector:
-            "Ordered points bypass thinning and tracing."
-        case .raster:
-            "Binary mask → Zhang–Suen → deterministic tracer."
-        }
-    }
-
     func replay() {
         replayCompletionTask?.cancel()
 
@@ -98,9 +95,10 @@ final class StrokeLabViewModel: ObservableObject {
         replayCompletionTask = nil
         replayStartedAt = nil
 
+        // 每个夹具固定自己的 seed：切来切回时手绘抖动保持一致，便于肉眼对比。
         let fixture = selectedFixture
         sequence = pipeline.process(
-            FixtureCatalog.source(for: fixture, mode: sourceMode),
+            fixture.strokes,
             configuration: configuration,
             seed: fixture.seed
         )

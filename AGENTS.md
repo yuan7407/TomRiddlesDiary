@@ -7,7 +7,7 @@
 - 根目录 `AGENTS.md`：项目目标、架构、安全、质量与协作的通用规则。
 - `.kiro/steering/*.md`：Kiro 自动加载的专项规则；当前 Git 操作以 `git-sync.md` 为准。
 - `CLAUDE.md`：兼容入口，不包含独立规则；不得与本文件维护两份全文。
-- `memory/`：动态项目状态和历史，不高于本文件；用户说“继续/上次”时先读 `memory/MEMORY.md` 与最近 daily。
+- `memory/`：动态项目状态和历史，不高于本文件；用户说“继续/上次”时先读 `memory/MEMORY.md`。
 - 若规则冲突，遵循系统/用户指令，其次采用范围更具体且更新的仓库规则；不要静默猜测。
 
 ## 项目信息
@@ -21,7 +21,7 @@
 - **工程/模块名**：`TomRiddlesDiary`。
 - **当前 bundle ID**：Xcode 占位值 `TomRiddlesDiary.TomRiddlesDiary`；正式主体/域名未确定，不得擅自替用户拍板。
 - **签名**：Simulator 可无签名运行；免费 Personal Team 可做短期个人真机测试；TestFlight/分发时再加入 Apple Developer Program。
-- **当前阶段**：用户已选择 B 并行路线；Swift Tasks 2–4 与离线 Magic Stroke Lab 已实现并进入验证收口。Task 1B 真实模型素材、最终笔画源、正式品牌与分发决策仍保持开放。
+- **当前阶段**：B 并行路线。Tasks 2–4 已完成并单源化（只保留有序向量），离线 Magic Stroke Lab 可演示但仅为开发者诊断界面。Task 1B 真实素材验证、正式品牌与分发决策仍开放。
 
 ## 专业身份与产品北极星
 
@@ -48,7 +48,8 @@
 
 1. **成页**：PencilKit 捕获 → 抬笔静置约 2.8 秒 → 灰度页面图像 → 墨水淡入过渡。
 2. **Oracle**：视觉模型读取涂鸦与有限上下文 → 文字流式返回 + 图像并行生成。
-3. **StrokeEngine**：Skeletonizer（Zhang-Suen）→ StrokeTracer → StrokeHumanizer → 逐笔重播。
+3. **StrokeEngine**：有序笔画 → StrokePipeline → StrokeHumanizer → StrokeReplayTimeline → 逐笔重播。
+   位图抽骨架路线因实机效果差已于 2026-08-25 删除；引擎入口统一为 `[Polyline]`。
 
 ### 模型通道
 
@@ -63,7 +64,7 @@
 `App / Features(Canvas·Response·Diary) / Oracle(Provider·Router·Persona) / StrokeEngine / Data / DesignSystem`
 
 - 改画布不得影响笔画引擎；改 provider/端点不得影响其他 provider；改 persona 不得改管道逻辑。
-- 共享抽骨架、笔画模型和 provider 调用时，验证所有调用方。
+- 共享笔画模型和 provider 调用时，验证所有调用方。
 - 依赖通过协议/注入提供，Oracle 可 mock，笔画源可替换，日志和成本应可观测。
 
 ## 用户体验原则
@@ -93,7 +94,7 @@
 
 - 每个手写源代码文件与测试文件都必须在文件顶部提供文件级注释，至少说明：文件职责、所属模块/边界，以及当前实现或重要调整采用该方案的原因。Swift 文件使用 `//` 文件头；注释以易懂中文为主，保留必要的英文类型名和术语。
 - 核心类型、协议和非显然函数使用文档注释说明输入、输出、不变量与失败边界；算法、并发、状态切换、取消逻辑和安全处理必须在关键代码旁解释“为什么这样做”，不能只把代码逐句翻译成中文。
-- 每次改变行为、架构或取舍时，必须同时记录修改原因：代码附近保留长期有效的设计原因，当日 `memory/daily/` 记录本次变更背景，对应 topic/MEMORY 更新当前结论，Git commit message 概括结果。删除的方案不保留注释掉的死代码，原因写入记忆与决策文档。
+- 每次改变行为、架构或取舍时，必须同时记录修改原因：代码附近保留长期有效的设计原因，`memory/MEMORY.md` 历史区追加结论、对应 topic 更新当前判断，Git commit message 概括结果。删除的方案不保留注释掉的死代码，原因写入记忆与决策文档。
 - 修改旧文件时同步检查其文件头和关键注释；缺失或与实现不符时一并修正。禁止为满足数量添加无信息注释，禁止让历史注释与现状冲突。
 
 ### 简洁与隔离
@@ -113,8 +114,7 @@
 
 每次改动运行最相关的验证：
 
-- Swift 逻辑：目标单测、类型/编译检查；Xcode 工程用 `xcodebuild`。
-- Python spike：使用仓库内 `.venv` 与精确锁定依赖，运行夹具生成/比较及产物结构检查。
+- Swift 逻辑：目标单测、类型/编译检查；Xcode 工程用 `xcodebuild`，测试须加 `-parallel-testing-enabled NO`。
 - 文档/配置：`git diff --check`、链接/路径人工核对。
 - 收口前始终运行 `scripts/ip_firewall_check.sh`。
 - 不能运行的验证必须说明原因与次佳检查，不得把“命令退出 0”夸大成体验通过。
@@ -187,37 +187,35 @@
 9. 新 UI 是否复用 DesignSystem？
 10. 当前结果是否真实可演示，而非只“看起来写完”？
 
-## 角色协作
+## 角色视角
 
-角色说明位于 `.claude/agents/`，可作为 ios、AI pipeline、backend、QA 的职责参考；不要假设 Kiro 会自动加载这些文件。
+没有独立角色文件（原 `.claude/agents/*` 已合并进本文件，避免多份规则漂移）。跨层任务先划清文件所有权和接口，并按下列关注点自检：
 
-- `ios-dev`：SwiftUI / PencilKit / 画布 / 逐笔渲染 / 本地存储。
-- `ai-pipeline-dev`：Oracle、Qwen 视觉/图像、路由、persona、prompt。
-- `backend-dev`：安全代理、自部署、订阅、记忆与合规兜底。
-- `qa-reviewer`：功能审查、构建/真机验证、IP/密钥门禁、主观魔法评估。
-
-跨层任务先划清文件所有权和接口；QA 不以代码存在为完成标准，而以行为可验证为标准。
+- **iOS**：SwiftUI / PencilKit / 画布 / 逐笔渲染 / 本地存储；不改 Oracle 与引擎内核。
+- **AI pipeline**：Oracle、provider/router、persona、prompt；不侵入 UI 与存储。
+- **Backend**：安全代理、订阅、记忆与合规兜底；永久 Key 只留服务端。
+- **QA**：以行为可验证为完成标准，而不是代码存在；负责构建/真机验证、IP 与密钥门禁、主观魔法评估。
 
 ## 记忆系统
 
 | 层级 | 文件 | 使用方式 |
 |---|---|---|
-| L0 | `AGENTS.md` | Kiro/GPT 的通用权威规则 |
+| L0 | `AGENTS.md` | 通用权威规则 |
 | L0 专项 | `.kiro/steering/*.md` | Kiro 自动加载的专项约束 |
-| L1 | `memory/MEMORY.md` | 当前状态与稳定经验；会话开始或“继续”时读取，保持 ≤200 行 |
-| L2 | `memory/topics/*.md` | 架构、模型、合规、成本、风险等专题，按需读取 |
-| L3 | `memory/daily/*.md` | 每日工作日志，用于恢复长任务上下文 |
-| L4 | `memory/archives/*.md` | 已归档历史，极少访问 |
+| L1 | `memory/MEMORY.md` | 当前状态与稳定经验；会话开始或“继续”时读取，保持 ≤120 行 |
+| L2 | `memory/topics/*.md` | `task-breakdown`（计划/素材）、`stroke-engine`（实现约束）、`decisions`（决策/风险/合规/未决） |
+
+不再维护每日日志层：历史压缩进 `MEMORY.md` 的「历史（精简）」，详细过程由 Git 历史承载。
 
 ### 会话开始/恢复
 
 1. 读取 `memory/MEMORY.md`。
-2. 用户说“继续/上次”时读取最近 daily 和当前专题。
+2. 用户说“继续/上次”时读取相关专题。
 3. 对照 Git 状态确认记忆与真实仓库一致；Git/构建结果优先于过期文字。
 
 ### 会话结束
 
 1. 稳定经验或重要决策写入对应 topic。
-2. 当天有实质工作时更新 `memory/daily/YYYY-MM-DD.md`。
-3. 更新 `MEMORY.md` 的当前状态与下一步，超过约 180 行时把细节迁到 topic。
+2. 当天有实质工作时在 `MEMORY.md` 历史区追加一行结论。
+3. 更新 `MEMORY.md` 的当前状态与下一步，超过约 120 行时把细节迁到 topic。
 4. 不把密钥、用户私密日记、完整模型输入/输出写入记忆。

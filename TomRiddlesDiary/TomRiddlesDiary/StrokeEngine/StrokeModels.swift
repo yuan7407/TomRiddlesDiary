@@ -1,77 +1,19 @@
+//
+//  StrokeModels.swift
+//  模块：StrokeEngine（纯逻辑，不依赖 UI、网络或模型）
+//
+//  文件职责：定义笔画引擎共用的最小几何值类型。
+//
+//  设计原因：
+//  - 使用 nonisolated 值类型，让纯算法能脱离 MainActor 在任意上下文复用与单测。
+//  - 2026-08-25 起本工程只保留“有序向量”一条笔画源，服务于位图细化的
+//    GridPoint / BinaryMask 已整体删除，引擎入口统一为 [Polyline]。
+//    原因：位图抽骨架的实机效果明显差于有序向量，保留双源只会留下无人使用的分支。
+//
+
 import Foundation
 
-/// Integer coordinate in a binary raster mask.
-nonisolated struct GridPoint: Hashable, Comparable, Sendable {
-    let x: Int
-    let y: Int
-
-    static func < (lhs: GridPoint, rhs: GridPoint) -> Bool {
-        lhs.y == rhs.y ? lhs.x < rhs.x : lhs.y < rhs.y
-    }
-}
-
-/// Compact, value-semantic foreground/background grid used by the pure stroke algorithms.
-nonisolated struct BinaryMask: Equatable, Sendable {
-    let width: Int
-    let height: Int
-    private var storage: [UInt8]
-
-    init(width: Int, height: Int, fill: Bool = false) {
-        precondition(width >= 0 && height >= 0, "Mask dimensions cannot be negative")
-        self.width = width
-        self.height = height
-        storage = Array(repeating: fill ? 1 : 0, count: width * height)
-    }
-
-    init(width: Int, height: Int, foreground: some Sequence<GridPoint>) {
-        self.init(width: width, height: height)
-        for point in foreground where contains(point) {
-            self[point] = true
-        }
-    }
-
-    subscript(_ point: GridPoint) -> Bool {
-        get {
-            precondition(contains(point), "Point is outside mask bounds")
-            return storage[index(of: point)] != 0
-        }
-        set {
-            precondition(contains(point), "Point is outside mask bounds")
-            storage[index(of: point)] = newValue ? 1 : 0
-        }
-    }
-
-    subscript(x: Int, y: Int) -> Bool {
-        get { self[GridPoint(x: x, y: y)] }
-        set { self[GridPoint(x: x, y: y)] = newValue }
-    }
-
-    var foregroundCount: Int {
-        storage.reduce(into: 0) { count, value in
-            count += value == 0 ? 0 : 1
-        }
-    }
-
-    var foregroundPoints: [GridPoint] {
-        guard width > 0, height > 0 else { return [] }
-        return (0 ..< height).flatMap { y in
-            (0 ..< width).compactMap { x in
-                let point = GridPoint(x: x, y: y)
-                return self[point] ? point : nil
-            }
-        }
-    }
-
-    func contains(_ point: GridPoint) -> Bool {
-        point.x >= 0 && point.x < width && point.y >= 0 && point.y < height
-    }
-
-    private func index(of point: GridPoint) -> Int {
-        point.y * width + point.x
-    }
-}
-
-/// UI-independent floating-point coordinate for traced and humanized strokes.
+/// 与 UI 无关的浮点坐标。故意不用 CGPoint，避免纯算法层依赖 CoreGraphics。
 nonisolated struct Point2D: Equatable, Sendable {
     let x: Double
     let y: Double
@@ -80,6 +22,8 @@ nonisolated struct Point2D: Equatable, Sendable {
         hypot(other.x - x, other.y - y)
     }
 
+    /// 按比例在两点之间取值，`fraction` 为 0 返回起点、1 返回终点。
+    /// 重采样和逐笔重播的“半条线段”都依赖它，因此保持为纯函数。
     static func interpolate(from start: Point2D, to end: Point2D, fraction: Double) -> Point2D {
         Point2D(
             x: start.x + (end.x - start.x) * fraction,
@@ -88,10 +32,11 @@ nonisolated struct Point2D: Equatable, Sendable {
     }
 }
 
-/// Ordered points that form one logical pen stroke.
+/// 一笔的有序采样点，代表“笔尖不离纸”的一条连续轨迹。
 nonisolated struct Polyline: Equatable, Sendable {
     let points: [Point2D]
 
+    /// 折线总长。Humanizer 用它推算这一笔应该画多久，因此长度必须按实际相邻距离累加。
     var length: Double {
         zip(points, points.dropFirst()).reduce(into: 0) { total, pair in
             total += pair.0.distance(to: pair.1)

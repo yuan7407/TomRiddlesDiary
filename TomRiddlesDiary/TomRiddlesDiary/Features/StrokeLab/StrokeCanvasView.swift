@@ -1,3 +1,17 @@
+//
+//  StrokeCanvasView.swift
+//  模块：Features/StrokeLab（渲染层，只消费 StrokeEngine 的输出）
+//
+//  文件职责：按重播时间轴逐段绘制笔画，并让线宽跟随压感变化。
+//
+//  设计原因：
+//  - 渲染层不生成任何手感数据，只读 ReplayFrame：手感的唯一来源是 StrokeHumanizer，
+//    这样换渲染实现时观感不会漂移。
+//  - TimelineView 在没有重播时通过 paused 停掉刷新，避免静止画面仍以 60 Hz 空转。
+//  - 逐段画而非整条 Path：只有分段才能让每段用各自的压感线宽，
+//    也才能画出“正在生长中的半条线段”。
+//
+
 import SwiftUI
 
 struct StrokeCanvasView: View {

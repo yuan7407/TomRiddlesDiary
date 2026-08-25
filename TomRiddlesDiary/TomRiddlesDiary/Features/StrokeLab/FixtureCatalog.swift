@@ -1,11 +1,16 @@
+//
+//  FixtureCatalog.swift
+//  模块：Features/StrokeLab（仅供开发验证的诊断界面，不属于最终用户体验）
+//
+//  文件职责：提供离线、确定性的有序笔画夹具，用于验证笔画引擎的手感与节奏。
+//
+//  设计原因：
+//  - 夹具直接写成 app 内的有序坐标，不解析 SVG、不读图片、不引入依赖：
+//    验证引擎时不应被素材管线的问题干扰，也不需要模型、网络或密钥。
+//  - 2026-08-25 删除位图路线后，这里不再做二值化/描点，只提供 [Polyline]。
+//
+
 import Foundation
-
-nonisolated enum StrokeLabSourceMode: String, CaseIterable, Identifiable, Sendable {
-    case orderedVector = "Vector"
-    case raster = "Raster"
-
-    var id: Self { self }
-}
 
 nonisolated struct StrokeLabFixture: Identifiable, Equatable, Sendable {
     let id: String
@@ -15,11 +20,8 @@ nonisolated struct StrokeLabFixture: Identifiable, Equatable, Sendable {
     let seed: UInt64
 }
 
-/// App-native versions of representative engineering fixtures. They are intentionally local and
-/// deterministic: the lab exercises stroke mechanics without a model, API key, or network access.
+/// 代表性夹具目录：三张覆盖不同结构（有机曲线 / 密集直线 / 分叉闭环）的离线线稿。
 nonisolated enum FixtureCatalog {
-    static let canvasSize = 128
-
     static let fixtures: [StrokeLabFixture] = [
         StrokeLabFixture(
             id: "01_weary_flower",
@@ -76,53 +78,13 @@ nonisolated enum FixtureCatalog {
         ),
     ]
 
-    static func source(for fixture: StrokeLabFixture, mode: StrokeLabSourceMode) -> StrokeSourcePayload {
-        switch mode {
-        case .orderedVector:
-            return .ordered(fixture.strokes)
-        case .raster:
-            return .raster(rasterize(fixture.strokes))
-        }
-    }
-
+    /// 夹具坐标按早期 640 画布书写，这里统一缩放到约 128 的尺度，
+    /// 让 Humanizer 的默认间距/抖动参数落在合理量级，而不必逐个夹具调参。
     private static func lines(_ source: [[(Double, Double)]]) -> [Polyline] {
         source.map { points in
             Polyline(points: points.map { point in
                 Point2D(x: point.0 / 5, y: point.1 / 5)
             })
-        }
-    }
-
-    private static func rasterize(_ polylines: [Polyline]) -> BinaryMask {
-        var mask = BinaryMask(width: canvasSize, height: canvasSize)
-
-        for polyline in polylines {
-            if let point = polyline.points.first {
-                stamp(point, into: &mask)
-            }
-            for (start, end) in zip(polyline.points, polyline.points.dropFirst()) {
-                let steps = max(1, Int(ceil(max(abs(end.x - start.x), abs(end.y - start.y)) * 2)))
-                for step in 0 ... steps {
-                    let fraction = Double(step) / Double(steps)
-                    stamp(Point2D.interpolate(from: start, to: end, fraction: fraction), into: &mask)
-                }
-            }
-        }
-
-        return mask
-    }
-
-    private static func stamp(_ point: Point2D, into mask: inout BinaryMask) {
-        let centerX = Int(point.x.rounded())
-        let centerY = Int(point.y.rounded())
-
-        for offsetY in -1 ... 1 {
-            for offsetX in -1 ... 1 where offsetX * offsetX + offsetY * offsetY <= 2 {
-                let gridPoint = GridPoint(x: centerX + offsetX, y: centerY + offsetY)
-                if mask.contains(gridPoint) {
-                    mask[gridPoint] = true
-                }
-            }
         }
     }
 }
