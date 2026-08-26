@@ -7,7 +7,7 @@
 - **App**：`ContentView` 承载 Magic Stroke Lab，3 个离线夹具可逐笔重播（压感线宽、严格串行）。这是开发者诊断界面，接 PencilKit 后须降级为 DEBUG-only。
 - **引擎**：`StrokePipeline → StrokeHumanizer → StrokeReplayTimeline`。位图路线（Skeletonizer/Tracer）2026-08-25 整体删除，原因是实机线条质量差；历史实现在 `e08f4c3`。
 - **验证**：23 个 XCTest 全通过；Simulator build 成功；iPad (A16) 首屏人工确认。测试必须加 `-parallel-testing-enabled NO`。
-- **未接入**：PencilKit 绘画、Oracle/Qwen、任何网络或密钥、加密存储、后端、TestFlight。
+- **未接入**：PencilKit 绘画、Oracle/DEEPSEEK/Qwen、任何网络或密钥、加密存储、后端、TestFlight。
 - **目录**：2026-08-25 拉平为单层 `TomRiddlesDiary.xcodeproj` + `Sources/` + `Tests/`，消除原来三层同名嵌套。
 
 ## 决策表
