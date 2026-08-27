@@ -21,10 +21,11 @@ nonisolated struct StrokeReplayTimeline: Sendable {
     }
 
     /// 第 index 笔的起笔时刻，等于它前面所有笔的时长之和。
+    /// 时长非负由 `TimedStroke` 的构造校验保证，这里不再重复夹取（计划 D3）。
     func startTime(forStrokeAt index: Int) -> TimeInterval {
         precondition(sequence.strokes.indices.contains(index), "Stroke index is out of range")
         return sequence.strokes[..<index].reduce(into: 0) { total, stroke in
-            total += max(0, stroke.duration)
+            total += stroke.duration
         }
     }
 
@@ -36,7 +37,8 @@ nonisolated struct StrokeReplayTimeline: Sendable {
         progress.reserveCapacity(sequence.strokes.count)
 
         for stroke in sequence.strokes {
-            let duration = max(0, stroke.duration)
+            // 时长非负由 TimedStroke 保证，这里不再重复夹取（计划 D3）。
+            let duration = stroke.duration
             let strokeProgress: Double
 
             if duration == 0 {
