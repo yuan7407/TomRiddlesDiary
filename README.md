@@ -45,11 +45,11 @@ scripts/                  仓库工具：提交门禁（不属于 App，不会�
 
 | 项 | 状态 |
 |---|---|
-| Xcode / Simulator | ✅ iPadOS 17+、仅 iPad、无签名 Simulator build 通过 |
+| Xcode / Simulator | ✅ iPadOS 27、仅 iPad、无签名 Simulator build 通过（需 Xcode 27） |
 | 笔画引擎 | ✅ 手绘化 + 压感 + 严格串行逐笔重播，40 个 XCTest 全通过 |
 | 单位契约 | ✅ 参数有物理含义，换字号自动同比例缩放，由测试守住 |
 | 回应渲染层 | ✅ 可用（`HandwritingReplayView`），但目前没有调用方 |
-| 手写识别 | ❌ PencilKit 内建识别实测不支持中文，输入端待重新选路 |
+| 手写识别 | ⬜ PencilKit 内建识别官方支持中文，但模拟器缺中文模型，只能真机验证 |
 | 首屏 | ⬜ 刻意的空白日记页。手写输入未接入，纸上不会有任何反应 |
 | 笔画输入源 | ❌ 无。引擎只吃 `[Polyline]`，而 PencilKit 与字形笔画都还没接 |
 | 手写识别 / 字形笔画 / 排版 / Oracle / 后端 / 存储 | ❌ 尚未接入 |
@@ -60,8 +60,12 @@ scripts/                  仓库工具：提交门禁（不属于 App，不会�
 
 打开 `TomRiddlesDiary.xcodeproj`，scheme 选 `TomRiddlesDiary`，选一个 iPad Simulator 后 Run。当前会看到一张空白的暖米白纸，这是预期结果。
 
+最低系统是 iPadOS 27，所以**构建必须用 Xcode 27**。命令行下用 `DEVELOPER_DIR` 指定，不必改全局 `xcode-select`：
+
 ```bash
-# 测试（必须关闭并行：Xcode 26.6 并行 clone 会触发工具自身崩溃）
+export DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer
+
+# 测试（必须关闭并行：并行 clone 会触发工具自身崩溃）
 xcodebuild -project TomRiddlesDiary.xcodeproj -scheme TomRiddlesDiary \
   -configuration Debug -sdk iphonesimulator \
   -destination 'platform=iOS Simulator,id=<iPad Simulator UUID>' \
@@ -138,7 +142,7 @@ Simulator 能跑不等于体验通过：压感、书写节奏与手写识别准�
 | E1 | **字形笔顺资产**（输出侧第二阶段，真正的逐笔生长）：文字 → 笔画中线。含数据集覆盖不到的标点、数字、拉丁字母。做完后取代 E8 的字体渲染 |
 | E2 | 排版层：一串字 → 页面坐标（字号、行宽、行距、换行、边距、字与字的自然不齐）。E8 与 E1 共用这一层 |
 | E3 | PencilKit 画布：手写捕获、成页触发、落笔中断接管、魂的笔画落定进 `PKDrawing`（用户可擦）。**PencilKit 本身 iOS 13 起就有，不需要等 Xcode 27**，只有识别要等 |
-| E4 | 手写识别接入 + 真机准确率验证（Apple Pencil，中英混写）。依赖 F1–F3 |
+| E4 | 手写识别接入。拉丁字母可在模拟器跑通；**中文可用性与准确率必须真机验证**（iPad 装 iPadOS 27 + Apple Pencil，中英混写样张） |
 | E5 | 端侧提取字迹指标 |
 | E6 | `OracleProvider` 协议 + Mock，离线打通完整闭环；失败只做诚实硬提示，绝不返回 Mock 冒充成功 |
 | E7 | 魔法生死评审：手写文字回应的 Go/Kill 判断（原 12 步计划第 8 步，对象由图像换成文字，评审本身保留）。**必须在 E1 之后**——E8 的字体版本无法逐笔生长，不能用它判生死 |
@@ -149,8 +153,8 @@ Simulator 能跑不等于体验通过：压感、书写节奏与手写识别准�
 | 编号 | 内容 |
 |---|---|
 | F1 | ✅ Xcode 27.0 beta 已装（2026-08-27，`Xcode-beta.app`，与 26.6 并存） |
-| F2 | ⛔ 已回滚。改最低系统到 27 的唯一理由是 PencilKit 手写识别，而 F3 证明它不支持中文。最低系统维持 17.0，等输入端重新选路后再定 |
-| F3 | ❌ **门禁未通过（2026-08-27 实测）**：`PKStrokeRecognizer.supportedLanguages` 在 iOS 27.0 beta 6 上返回 20 种语言，**全部是拉丁字母文字，没有中文**（cs, da, de, en, es, fi, fr, hi-Latn, id, it, ms, nb, nl, nn, no, pl, pt, ro, sv, tr；`recognitionVersion = 9`）。输入端必须换路，见下方「输入端待重新选路」 |
+| F2 | ✅ 最低系统 iPadOS 27.0（2026-08-27）。构建必须用 Xcode 27，见「运行与验证」 |
+| F3 | ✅ **通过：PencilKit 手写识别官方支持中文**（简体、繁体、粤语，另有日韩阿俄等共 29 种，见 [WWDC 2026 session 203](https://developer.apple.com/videos/play/wwdc2026/203/?time=205)）。**但模拟器上验证不了**——详见「关于手写识别的模拟器限制」 |
 | F4 | 升 Swift 6 语言模式 |
 | F5 | 门禁加 import 白名单，保护 `StrokeEngine` 只依赖 Foundation |
 | F6 | ✅ AGENTS.md 补硬编码规则与 `Handwriting` 模块（2026-08-26 完成） |
@@ -181,17 +185,39 @@ Simulator 能跑不等于体验通过：压感、书写节奏与手写识别准�
 | H7 | ✅ 图像相关占位 key 删除 |
 | H8 | ✅ 删除陈旧分支 `chore/pre-development-readiness`（2026-08-27，本地与远端；删除前已确认它是 `main` 的祖先，不丢提交） |
 
-### 输入端待重新选路（F3 门禁未通过的后果）
+### 关于手写识别的模拟器限制
 
-原方案「用 PencilKit 内建识别把手写变成文字」在中文上不成立。三条替代路，第一条已实测可行：
+**结论：PencilKit 手写识别官方支持中文，但中文识别只能在真机上验证，模拟器不行。**
 
-| 路线 | 中文支持 | 代价 | 状态 |
+实测与证据链（2026-08-27，iOS 27.0 beta 6 模拟器）：
+
+1. `PKStrokeRecognizer.supportedLanguages` 只返回 20 种，全是拉丁字母文字：`cs, da, de, en, es, fi, fr, hi-Latn, id, it, ms, nb, nl, nn, no, pl, pt, ro, sv, tr`（`recognitionVersion = 9`）。显式 `PKStrokeRecognizer(preferredLanguages: ["zh-Hans"])` 的 `languages` 返回空数组。
+2. 把模拟器系统语言改成 `zh-Hans-CN`、装上中文手写键盘并重启，结果不变。
+3. 但运行时内部的 `CoreHandwriting.framework` 里，中文的码表 `ctc_zh.codemap` **在**（日韩阿俄泰越天城文的码表也都在），而**只有拉丁字母有本地模型权重** `ctc_latn.bundle`。
+4. 非拉丁文字的手写模型是按需下载的系统资产（`com.apple.MobileAsset.UAF.Handwriting.*`），模拟器运行时不带。
+
+所以这是**运行环境缺模型**，不是平台不支持。官方 session 的支持语言列表包含中文简繁与粤语。
+
+对开发的影响：
+
+- 拉丁字母的识别**现在就能在模拟器里测**，可以先把画布与识别的接线做完、跑通。
+- 中文识别的可用性与准确率**必须等真机**（iPad 装 iPadOS 27）。在那之前不得声称中文识别已验证。
+- 代码必须处理「当前设备没有某语言模型」这一真实情况：按 AGENTS.md 不静默兜底，要如实告知而不是假装识别成功。
+
+备选路线（万一真机上中文准确率不够）：Vision 的 `RecognizeTextRequest`，`.accurate` 实测支持 `zh`、`zh-TW`、`yue`、`yue-CN` 共 30 种语言（`.fast` 只有 6 种拉丁语）。做法是把 `PKDrawing` 渲染成图再识别。代价是丢掉笔画顺序信息，而且 Vision 面向印刷体与照片文字。
+
+顺带查到：`PKDrawing.erasePath` / `erasingPath` 是 iOS 27 新增，对「魂的笔画可被橡皮擦掉」（决策 18）有帮助。
+
+### 手写体字体选型（E8）
+
+**iOS 内置字体里没有任何中文楷体或手写体**——实测 iOS 27 运行时只有 `PingFangUI.ttc`（现代黑体，看起来是印刷 UI 文字），macOS 上那些手札体、翩翩体、楷体在 iOS 上都没有。所以必须自带字体。
+
+| 候选 | 风格 | 授权 | 说明 |
 |---|---|---|---|
-| **Vision 文本识别**：把 `PKDrawing` 渲染成图（`image(from:scale:)` 现成），交 Vision 识别 | ✅ 实测支持 `zh`、`zh-TW`、`yue`、`yue-CN`（`.accurate` 共 30 种语言；`.fast` 只有 6 种拉丁语） | 端侧、免费、离线、隐私最好，今天就能做。但 Vision 是为**印刷体与照片文字**设计的，**手写中文的准确率完全未知**，必须用真实手写样张实测；且渲染成图会丢掉笔画顺序这一信息 | 待实测准确率 |
-| **多模态模型看整页图**（DeepSeek `deepseek-v4-flash-vision-exp` / Qwen-VL 等） | 预期支持 | 联网、花钱、要把日记页图像发出去。好处是顺带拿到字迹情绪信号（计划 C2） | 用户此前倾向排除，现在重新成为候选 |
-| **第三方端侧数字墨水识别**（如 Google ML Kit 数字墨水） | 声称支持 | 专为笔画序列设计而非照片文字，理论上更适合手写；但引入第三方依赖、包体积与其隐私条款 | 未评估 |
+| **霞鹜文楷 GB（LXGW WenKai GB）** | 楷体，像用钢笔认真写 | SIL OFL 1.1 | 首选。派生自 Fontworks Klee One，字形与**笔顺遵循大陆国家标准（G 源字形）**，覆盖通用规范汉字表与 GB 18030-2022 二级。已进 Adobe Fonts 与 CTAN，社区口碑与成熟度最好。与将来的字形笔顺数据同为楷体系，从 E8 切到 E1 时观感落差最小 |
+| 寒蝉手拙体（ChillShouZhuo） | 真正的随手写，刻意保留手拙感 | 待复核 | 视觉上更像日记随手写，但成熟度与字数覆盖需确认 |
 
-顺带查到的事实：`PKDrawing.erasePath` / `erasingPath` 是 iOS 27 新增，对「魂的笔画可被橡皮擦掉」（决策 18）有帮助，但不是必需——也可以靠重建 `PKDrawing` 实现擦除。
+取舍是审美问题：楷体是「认真写字」的感觉，手拙体是「随手涂写」的感觉。中文免费商用字体的横向索引可参考 [猫啃网](https://www.maoken.com/all-fonts)。
 
 ### 执行顺序
 
