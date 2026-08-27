@@ -54,6 +54,13 @@ enum HandwritingFeel {
     /// 推算：中文手写约每秒 1.5 个字，一个字的墨迹总长约 5 个字高，故约 7.5。
     static let inkLengthPerSecondInReferenceScales: Double = 7.5
 
+    /// 一个汉字的墨迹总长约等于几个字高。
+    /// 原先这个数只写在上一行的注释里，没有作为值存在，于是「每秒几个字」这件事
+    /// 无法从配置推出来，只能在别处再拍一个数——那就成了同一关系的第二套值。
+    /// 现在显式化，`glyphsPerSecond` 由它与书写速度算出。
+    /// 依据同样只是量级推算（一个字六七笔、每笔平均不到一个字高），待 A10 用真人笔迹核实。
+    static let inkLengthPerGlyphInReferenceScales: Double = 5
+
     // MARK: 无量纲比例与绝对时间
 
     /// 每笔时长的随机浮动比例。
@@ -90,6 +97,12 @@ enum HandwritingFeel {
     static let defaultSeed: UInt64 = 7
 
     // MARK: 装配
+
+    /// 每秒写出几个字。由书写速度与每字墨迹长度推出，不是独立参数——
+    /// 改书写速度时它会自动跟着变，不会出现两个数打架。
+    static var glyphsPerSecond: Double {
+        inkLengthPerSecondInReferenceScales / inkLengthPerGlyphInReferenceScales
+    }
 
     /// 按参照尺度装配出引擎需要的手绘化参数。
     /// - Parameter referenceScale: 一个字的高度（页面点）。传 nil 用默认字高。

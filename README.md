@@ -29,7 +29,12 @@ Sources/                  App 源码
     HandwritingFeel       手感参数 + 装配 HumanizerConfiguration 的唯一入口
     PageAppearance        纸色、墨色、墨线宽度
   Features/Canvas/        写字的那张纸
-  Features/Response/      魂的回应渲染（逐笔重播）
+  Handwriting/            文字 → 纸上位置（纯逻辑，与 StrokeEngine 平级）
+    TextLayout            CoreText 断行与定位，输出每个字的页面位置
+  Features/Response/      魂的回应渲染
+    HandwrittenTextView   用字体逐字显现（E8 脚手架）
+    HandwritingReplayView 用笔画逐笔生长（E1 之后启用）
+  Resources/Fonts/        打包字体（寒蝉手拙体 v2.500）
   StrokeEngine/           手绘化、生长几何与重播时序（纯逻辑，不依赖 UI 与配置）
     StrokeHumanizer       把几何折线变成带压感与节奏的笔画
     StrokeGrowth          一笔在某个进度下应该画到哪里（含生长中的半段）
@@ -46,11 +51,13 @@ scripts/                  仓库工具：提交门禁（不属于 App，不会�
 | 项 | 状态 |
 |---|---|
 | Xcode / Simulator | ✅ iPadOS 27、仅 iPad、无签名 Simulator build 通过（需 Xcode 27） |
-| 笔画引擎 | ✅ 手绘化 + 压感 + 严格串行逐笔重播，40 个 XCTest 全通过 |
+| 笔画引擎 | ✅ 手绘化 + 压感 + 严格串行逐笔重播，54 个 XCTest 全通过 |
 | 单位契约 | ✅ 参数有物理含义，换字号自动同比例缩放，由测试守住 |
 | 回应渲染层 | ✅ 可用（`HandwritingReplayView`），但目前没有调用方 |
 | 手写识别 | ⬜ PencilKit 内建识别官方支持中文，但模拟器缺中文模型，只能真机验证 |
-| 首屏 | ⬜ 刻意的空白日记页。手写输入未接入，纸上不会有任何反应 |
+| 首屏 | ✅ 一段示例回应会用手写体逐字写在纸上（E8 脚手架，非最终效果） |
+| 排版层 | ✅ CoreText 断行，中英混排，字位置可断言 |
+| 手写体字体 | ✅ 寒蝉手拙体 v2.500 已打包（3.9 MB OTF） |
 | 笔画输入源 | ❌ 无。引擎只吃 `[Polyline]`，而 PencilKit 与字形笔画都还没接 |
 | 手写识别 / 字形笔画 / 排版 / Oracle / 后端 / 存储 | ❌ 尚未接入 |
 
@@ -80,7 +87,7 @@ xcodebuild -project TomRiddlesDiary.xcodeproj -scheme TomRiddlesDiary \
 bash scripts/ip_firewall_check.sh
 ```
 
-预期 `40 tests, 0 failures` 与 `** BUILD SUCCEEDED **`。构建有一条非阻塞提示（未依赖 AppIntents，跳过其 metadata），属预期。门禁会报若干占位品牌名的 ⚠，在白名单内，属预期。
+预期 `54 tests, 0 failures` 与 `** BUILD SUCCEEDED **`。构建有一条非阻塞提示（未依赖 AppIntents，跳过其 metadata），属预期。门禁会报若干占位品牌名的 ⚠，在白名单内，属预期。
 
 Simulator 能跑不等于体验通过：压感、书写节奏与手写识别准确率都必须 iPad 真机 + Apple Pencil 主观评审。
 
@@ -140,13 +147,13 @@ Simulator 能跑不等于体验通过：压感、书写节奏与手写识别准�
 | 编号 | 内容 |
 |---|---|
 | E1 | **字形笔顺资产**（输出侧第二阶段，真正的逐笔生长）：文字 → 笔画中线。含数据集覆盖不到的标点、数字、拉丁字母。做完后取代 E8 的字体渲染 |
-| E2 | 排版层：一串字 → 页面坐标（字号、行宽、行距、换行、边距、字与字的自然不齐）。E8 与 E1 共用这一层 |
+| E2 | ✅ 排版层完成（2026-08-27）：`Handwriting/TextLayout` 用 CoreText 断行与定位，输出每个字的页面位置与字宽。E8 与 E1 共用这一层。仍待做：字与字的自然不齐（大小起伏、基线抖动），属手写感范畴 |
 | E3 | PencilKit 画布：手写捕获、成页触发、落笔中断接管、魂的笔画落定进 `PKDrawing`（用户可擦）。**PencilKit 本身 iOS 13 起就有，不需要等 Xcode 27**，只有识别要等 |
 | E4 | 手写识别接入。拉丁字母可在模拟器跑通；**中文可用性与准确率必须真机验证**（iPad 装 iPadOS 27 + Apple Pencil，中英混写样张） |
 | E5 | 端侧提取字迹指标 |
 | E6 | `OracleProvider` 协议 + Mock，离线打通完整闭环；失败只做诚实硬提示，绝不返回 Mock 冒充成功 |
 | E7 | 魔法生死评审：手写文字回应的 Go/Kill 判断（原 12 步计划第 8 步，对象由图像换成文字，评审本身保留）。**必须在 E1 之后**——E8 的字体版本无法逐笔生长，不能用它判生死 |
-| E8 | **手写体字体脚手架**（输出侧第一阶段）：用系统手写体字体把文字排到纸上并随时间显现。不需要识别、不需要模型、不需要 Xcode 27，现在就能做。明确的临时方案：字体是轮廓不是笔迹，给不出笔顺，因此这一步**不验证逐笔生长**，也完全不经过 `StrokeEngine` |
+| E8 | ✅ **手写体字体脚手架完成**（2026-08-27）：寒蝉手拙体 v2.500 打包 + CoreText 排版 + 逐字显现，中英混排均为手写体。明确的临时方案：字体是轮廓不是笔迹，给不出笔顺，因此这一步**不验证逐笔生长**，也完全不经过 `StrokeEngine`。E1 完成后取代它 |
 
 ### F 工程与工具链
 

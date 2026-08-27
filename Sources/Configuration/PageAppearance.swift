@@ -31,6 +31,20 @@ enum PageAppearance {
     /// 墨色。偏暖的近黑，避免纯黑在暖色纸上显得像印刷。
     static let ink = Color(red: 0.12, green: 0.105, blue: 0.09)
 
+    /// 行距，表达为字高的倍数。1.6 → 9 mm 的字行间约留 5.4 mm 空隙。
+    /// 手写比印刷需要更松的行距：字有高低起伏，行贴太近会互相蹭到。
+    /// 依据仍是量级推算（纸质笔记本行距通常是字高的 1.5–2 倍），待真机观感复核。
+    static let lineSpacingRatio: Double = 1.6
+
+    /// 页边距，表达为页面短边的比例。0.08 → 竖持 iPad 上约 65 点。
+    /// 用比例而不是固定点数：换设备或分屏时留白比例不变。
+    static let pageMarginRatio: Double = 0.08
+
+    /// 按页面尺寸算出页边距（视图点）。
+    static func pageMargin(for size: CGSize) -> Double {
+        min(size.width, size.height) * pageMarginRatio
+    }
+
     /// 把 0…1 的压感换算成墨线宽度（视图点）。
     /// - Parameters:
     ///   - pressure: 0…1 的压感。超出范围时夹紧，避免异常数据画出负宽度。
