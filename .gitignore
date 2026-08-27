@@ -52,19 +52,9 @@ Package.resolved
 Pods/
 Carthage/Build/
 
-# ---- Python (scripts/stroke_spike Task 1) ----
-__pycache__/
-*.py[cod]
-*.egg-info/
-.venv/
-venv/
-env/
-.pytest_cache/
-.ipynb_checkpoints/
-
-# ---- Stroke spike 实验输出 / 临时文件 ----
-scripts/stroke_spike/out/
-scripts/stroke_spike/output/
+# ---- 临时文件 ----
+# 2026-08-26 移除 Python 与 scripts/stroke_spike 相关条目：位图路线与 Python
+# 对比 spike 已整体删除，工程内没有 Python，那些条目属于已废配置。
 *.tmp
 *.log
 

@@ -9,7 +9,7 @@
 #
 # 文件范围：Git 已跟踪文件 + 未被 .gitignore 排除的候选文件；跳过二进制、
 # 构建产物和定义策略的内部知识面。这样既覆盖 staged/untracked 候选，也不会
-# 遍历 .venv、out、xcuserdata 等被忽略的大目录。
+# 遍历 xcuserdata 等被忽略的大目录。
 #
 # 退出码：0 = 通过；1 = 命中禁用词或检测到敏感文件入库。
 # ============================================================
@@ -19,9 +19,12 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
 # ---- 内部知识面 / 构建产物（不属于用户可见分发面）----
-EXCLUDE_DIRS=("docs" "memory" ".claude" ".kiro" "kiro-pet"
-              "build" "DerivedData" ".build" ".swiftpm" "Pods" "Carthage"
-              "scripts/stroke_spike/out")
+# 2026-08-26 清理：删掉 docs / memory / .claude / kiro-pet / scripts/stroke_spike/out
+# 五个已不存在的路径，以及 Pods / Carthage（本工程用 SPM，两个包管理器都不使用）。
+# 保留 .kiro：那里是规则与流程文件，属定义策略的内部面。注意这意味着门禁不会扫描
+# steering 文件，是已知的覆盖缺口，待决定是否收窄。
+EXCLUDE_DIRS=(".kiro"
+              "build" "DerivedData" ".build" ".swiftpm")
 
 # ---- 定义策略本身 / 已 gitignore 的本地配置 ----
 EXCLUDE_FILES=("AGENTS.md" "README.md" "MEMORY.md"
@@ -44,9 +47,10 @@ fail=0
 is_excluded_path() {
   local f="${1#./}" d e
 
-  # 任意层级的虚拟环境、缓存和 Xcode 用户态目录都不扫描。
+  # Xcode 用户态目录任意层级都不扫描（也绝不入库）。
+  # 2026-08-26 移除 .venv / venv / __pycache__：Python spike 已删除，工程无 Python。
   case "/$f/" in
-    *"/.venv/"*|*"/venv/"*|*"/__pycache__/"*|*"/xcuserdata/"*) return 0 ;;
+    *"/xcuserdata/"*) return 0 ;;
   esac
 
   for d in "${EXCLUDE_DIRS[@]}"; do
