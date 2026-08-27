@@ -32,11 +32,14 @@ import SwiftUI
 
 /// 逐笔重播一段已手绘化的回应。
 /// - Parameters:
-///   - sequence: 已经过 StrokeHumanizer 处理的笔画序列，坐标须为页面坐标系。
+///   - sequence: 已经过 StrokeHumanizer 处理的笔画序列，坐标须为页面坐标系（页面点）。
 ///   - replayStartedAt: 起播时刻。传 nil 表示不在播放，此时直接显示画完的最终状态。
+///   - referenceScale: 这段文字排版时用的字高（页面点）。墨的粗细按它换算，
+///     所以写大字时墨也相应变粗，比例关系不变。
 struct HandwritingReplayView: View {
     let sequence: StrokeSequence
     let replayStartedAt: Date?
+    let referenceScale: Double
 
     var body: some View {
         TimelineView(.animation(paused: replayStartedAt == nil)) { timelineContext in
@@ -64,7 +67,7 @@ struct HandwritingReplayView: View {
 
         if stroke.samples.count == 1 {
             let center = viewPoint(first.point)
-            let width = PageAppearance.inkWidth(forPressure: first.pressure)
+            let width = inkWidth(forPressure: first.pressure)
             context.fill(
                 Path(ellipseIn: CGRect(
                     x: center.x - width / 2,
@@ -111,11 +114,15 @@ struct HandwritingReplayView: View {
             path,
             with: .color(PageAppearance.ink),
             style: StrokeStyle(
-                lineWidth: PageAppearance.inkWidth(forPressure: (start.pressure + end.pressure) / 2),
+                lineWidth: inkWidth(forPressure: (start.pressure + end.pressure) / 2),
                 lineCap: .round,
                 lineJoin: .round
             )
         )
+    }
+
+    private func inkWidth(forPressure pressure: Double) -> Double {
+        PageAppearance.inkWidth(forPressure: pressure, referenceScale: referenceScale)
     }
 
     /// 页面坐标到视图坐标：1:1，不缩放不平移。缩放是页面层的职责，不是墨层的。

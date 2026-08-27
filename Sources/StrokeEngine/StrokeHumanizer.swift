@@ -14,31 +14,62 @@
 
 import Foundation
 
-/// 手绘化参数。默认值面向“较大画布上的中等速度书写”，Lab 会按夹具尺度覆盖。
+/// 手绘化参数。
+///
+/// 单位契约（2026-08-27 建立，计划 D1）：
+/// 前三个字段是**尺度相关**的，单位一律是「页面点」，必须由调用方按参照尺度算出。
+/// 其余字段无量纲或是绝对时间，与尺度无关。
+///
+/// 刻意不提供任何默认值。原因：历史上这里有一套默认值，调用方又有另一套，
+/// 而默认那套从未对真实内容验证过，长期是死参数；同时因为参数是尺度相关的，
+/// 任何默认值都只在某个特定画布尺寸下成立。现在唯一的生产来源是
+/// `HandwritingFeel.humanizerConfiguration(referenceScale:)`，构造时必须交代尺度。
 nonisolated struct HumanizerConfiguration: Equatable, Sendable {
-    /// 重采样间距：先把疏密不均的原始点铺成等距点，抖动和压感才不会忽强忽弱。
-    var sampleSpacing: Double = 2
-    var jitterAmplitude: Double = 0.6
-    /// 每秒画多少长度单位，决定整体书写速度。
-    var pointsPerSecond: Double = 220
-    var durationVariation: Double = 0.1
-    var minimumDuration: TimeInterval = 0.25
-    var basePressure: Double = 0.72
-    var pressureVariation: Double = 0.08
-    var minimumPressure: Double = 0.12
-    var maximumPressure: Double = 0.95
+    // MARK: 尺度相关（单位：页面点）
+
+    /// 重采样间距。先把疏密不均的原始点铺成等距点，抖动和压感才不会忽强忽弱。
+    var sampleSpacing: Double
+
+    /// 手抖幅度（标准差）。
+    var jitterAmplitude: Double
+
+    /// 每秒画过的墨迹长度，决定书写速度。
+    /// 名字刻意写明「墨迹长度」：旧名 `pointsPerSecond` 会被误读成「每秒多少个采样点」，
+    /// 而它实际是「每秒多少个长度单位」。
+    var inkLengthPerSecond: Double
+
+    // MARK: 无量纲比例与绝对时间
+
+    /// 每笔时长的随机浮动比例，避免所有笔节奏完全一致。
+    var durationVariation: Double
+
+    /// 单笔最短时长（秒）。时间不随字号变化，因此是绝对值。
+    var minimumDuration: TimeInterval
+
+    var basePressure: Double
+    var pressureVariation: Double
+    var minimumPressure: Double
+    var maximumPressure: Double
+
     /// 起笔/收笔渐细占整笔的比例，用于模拟落笔变重、收笔提起。
-    var taperFraction: Double = 0.14
+    var taperFraction: Double
 }
 
 nonisolated struct StrokeHumanizer: Sendable {
+    /// 时长扰动的下限系数。属算法安全下界（防止时长被噪声压到接近 0），不是手感参数。
+    private static let minimumTimingNoiseFactor: Double = 0.1
+
+    /// 判定两点重合的容差。重复点会在累积长度里产生零长段，插值时除零。
+    /// 这是数值稳定性阈值，不是手感参数。
+    private static let coincidentPointTolerance: Double = 1e-9
+
     /// 手绘化一组有序笔画。
     /// - Note: 所有笔画共用同一个随机流，因此笔与笔之间的差异也可复现；
     ///         不要改成每笔重置种子，否则每笔抖动会呈现相同的规律。
     func humanize(
         _ polylines: [Polyline],
-        configuration: HumanizerConfiguration = HumanizerConfiguration(),
-        seed: UInt64 = 7
+        configuration: HumanizerConfiguration,
+        seed: UInt64
     ) -> StrokeSequence {
         validate(configuration)
         var random = SeededRandomNumberGenerator(seed: seed)
@@ -99,11 +130,13 @@ nonisolated struct StrokeHumanizer: Sendable {
         let length = zip(samples, samples.dropFirst()).reduce(into: 0.0) { total, pair in
             total += pair.0.point.distance(to: pair.1.point)
         }
-        let timingNoise = max(0.1, 1 + random.gaussian() * configuration.durationVariation)
+        // 时长扰动的下限：噪声再大也不能把时长压成接近 0，否则那一笔会“闪现”。
+        // 这是算法自身的安全下界，不是可调手感，故留在此处而不进配置。
+        let timingNoise = max(Self.minimumTimingNoiseFactor, 1 + random.gaussian() * configuration.durationVariation)
         // 最小时长兜底：极短的笔如果瞬间完成，观感会像“闪现”而不是画出来。
         let duration = max(
             configuration.minimumDuration,
-            length / configuration.pointsPerSecond * timingNoise
+            length / configuration.inkLengthPerSecond * timingNoise
         )
 
         return TimedStroke(samples: samples, duration: duration)
@@ -116,7 +149,8 @@ nonisolated struct StrokeHumanizer: Sendable {
 
         // 先去掉重复点，否则累积长度里会出现零长段，插值时除零。
         var points = [first]
-        for point in input.dropFirst() where point.distance(to: points[points.count - 1]) > 1e-9 {
+        for point in input.dropFirst()
+        where point.distance(to: points[points.count - 1]) > Self.coincidentPointTolerance {
             points.append(point)
         }
         guard points.count > 1 else { return points }
@@ -170,7 +204,7 @@ nonisolated struct StrokeHumanizer: Sendable {
     private func validate(_ configuration: HumanizerConfiguration) {
         precondition(configuration.sampleSpacing > 0, "Sample spacing must be positive")
         precondition(configuration.jitterAmplitude >= 0, "Jitter cannot be negative")
-        precondition(configuration.pointsPerSecond > 0, "Drawing speed must be positive")
+        precondition(configuration.inkLengthPerSecond > 0, "Ink length per second must be positive")
         precondition(configuration.durationVariation >= 0, "Duration variation cannot be negative")
         precondition(configuration.minimumDuration >= 0, "Minimum duration cannot be negative")
         precondition(configuration.pressureVariation >= 0, "Pressure variation cannot be negative")

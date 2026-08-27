@@ -25,9 +25,12 @@ TomRiddlesDiary.xcodeproj Xcode 工程
 Sources/                  App 源码
   TomRiddlesDiaryApp      入口
   Configuration/          集中配置（经验性常量的唯一定义处）
+    PageMetrics           毫米 ↔ 页面点，全工程唯一的物理换算点
+    HandwritingFeel       手感参数 + 装配 HumanizerConfiguration 的唯一入口
+    PageAppearance        纸色、墨色、墨线宽度
   Features/Canvas/        写字的那张纸
   Features/Response/      魂的回应渲染（逐笔重播）
-  StrokeEngine/           手绘化与重播时序（纯逻辑，不依赖 UI）
+  StrokeEngine/           手绘化与重播时序（纯逻辑，不依赖 UI 与配置）
 Tests/                    XCTest（与 Sources 同级，不打进 App）
 Config/                   Secrets / Persona 模板，真实值被 gitignore
 scripts/                  仓库工具：提交门禁（不属于 App，不会被打包）
@@ -40,7 +43,8 @@ scripts/                  仓库工具：提交门禁（不属于 App，不会�
 | 项 | 状态 |
 |---|---|
 | Xcode / Simulator | ✅ iPadOS 17+、仅 iPad、无签名 Simulator build 通过 |
-| 笔画引擎 | ✅ 手绘化 + 压感 + 严格串行逐笔重播，20 个 XCTest 全通过 |
+| 笔画引擎 | ✅ 手绘化 + 压感 + 严格串行逐笔重播，26 个 XCTest 全通过 |
+| 单位契约 | ✅ 参数有物理含义，换字号自动同比例缩放，由测试守住 |
 | 回应渲染层 | ✅ 可用（`HandwritingReplayView`），但目前没有调用方 |
 | 首屏 | ⬜ 刻意的空白日记页。手写输入未接入，纸上不会有任何反应 |
 | 笔画输入源 | ❌ 无。引擎只吃 `[Polyline]`，而 PencilKit 与字形笔画都还没接 |
@@ -68,7 +72,7 @@ xcodebuild -project TomRiddlesDiary.xcodeproj -scheme TomRiddlesDiary \
 bash scripts/ip_firewall_check.sh
 ```
 
-预期 `20 tests, 0 failures` 与 `** BUILD SUCCEEDED **`。构建有一条非阻塞提示（未依赖 AppIntents，跳过其 metadata），属预期。门禁会报若干占位品牌名的 ⚠，在白名单内，属预期。
+预期 `26 tests, 0 failures` 与 `** BUILD SUCCEEDED **`。构建有一条非阻塞提示（未依赖 AppIntents，跳过其 metadata），属预期。门禁会报若干占位品牌名的 ⚠，在白名单内，属预期。
 
 Simulator 能跑不等于体验通过：压感、书写节奏与手写识别准确率都必须 iPad 真机 + Apple Pencil 主观评审。
 
@@ -112,8 +116,8 @@ Simulator 能跑不等于体验通过：压感、书写节奏与手写识别准�
 
 | 编号 | 内容 |
 |---|---|
-| D1 | 定坐标与单位契约：坐标统一用页面点，参数按物理含义声明（线宽用毫米、间距与抖动用相对比例、速度用每秒字数） |
-| D2 | 把全部经验性常量收进 `Configuration`，删掉从未验证过的引擎默认参数 |
+| D1 | ✅ 坐标与单位契约（2026-08-27）：坐标统一用页面点；**只有字高用毫米声明**，其余长度全部表达为字高的比例。换字号时间距、抖动、速度、墨宽自动同比例变化 |
+| D2 | ✅ 经验性常量全部收进 `Configuration`（2026-08-27）：`HandwritingFeel` 持有手感参数、`PageAppearance` 持有纸墨、`PageMetrics` 是唯一的毫米↔点换算点。引擎与视图里已无手感字面量；引擎的默认参数整套删除，构造配置必须交代参照尺度 |
 | D3 | 不变量落进类型：`TimedStroke.duration` 允许负数导致三处重复夹取 |
 | D4 | 时钟统一：`Date`（会跳）与 `Task.sleep`（非墙上时钟）混用，改单调时钟，并定清后台返回行为 |
 | D5 | ✅ 纸色与墨色收敛到唯一一处（2026-08-26 完成） |

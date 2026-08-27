@@ -22,12 +22,12 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		2F90C58E3011F42E000B2DC2 /* TomRiddlesDiary */ = {
+		2F90C58E3011F42E000B2DC2 /* Sources */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = Sources;
 			sourceTree = "<group>";
 		};
-		A37576000000000000000002 /* TomRiddlesDiaryTests */ = {
+		A37576000000000000000002 /* Tests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = Tests;
 			sourceTree = "<group>";
@@ -55,8 +55,8 @@
 		2F90C5833011F42E000B2DC2 = {
 			isa = PBXGroup;
 			children = (
-				2F90C58E3011F42E000B2DC2 /* TomRiddlesDiary */,
-				A37576000000000000000002 /* TomRiddlesDiaryTests */,
+				2F90C58E3011F42E000B2DC2 /* Sources */,
+				A37576000000000000000002 /* Tests */,
 				2F90C58D3011F42E000B2DC2 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -86,7 +86,7 @@
 			dependencies = (
 			);
 			fileSystemSynchronizedGroups = (
-				2F90C58E3011F42E000B2DC2 /* TomRiddlesDiary */,
+				2F90C58E3011F42E000B2DC2 /* Sources */,
 			);
 			name = TomRiddlesDiary;
 			packageProductDependencies = (
@@ -109,7 +109,7 @@
 				A37576000000000000000008 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
-				A37576000000000000000002 /* TomRiddlesDiaryTests */,
+				A37576000000000000000002 /* Tests */,
 			);
 			name = TomRiddlesDiaryTests;
 			packageProductDependencies = (

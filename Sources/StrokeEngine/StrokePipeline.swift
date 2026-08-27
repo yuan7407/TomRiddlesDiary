@@ -7,8 +7,11 @@
 //  设计原因：
 //  - 2026-08-25 删除位图路线后，这里不再需要 StrokeSourcePayload 枚举，入口直接收 [Polyline]。
 //    原因：只剩一种源时，枚举只会假装“可切换”，反而掩盖真实实现。
-//  - 仍保留 Pipeline 这一层而不是让 UI 直接调用 Humanizer：以后接入真实模型输出时，
-//    格式转换和参数装配都应集中在这里，UI 与调用方不必改动。
+//  - 仍保留 Pipeline 这一层而不是让上层直接调用 Humanizer：接入字形笔画与排版层后，
+//    格式转换和参数装配都应集中在这里，调用方不必改动。
+//  - 参数与种子都不给默认值（2026-08-27，计划 D1/D2）。原因：参数是尺度相关的，
+//    默认值只在某个特定画布尺寸下成立；而同一个默认种子曾在这里和 Humanizer
+//    各写一份，属于同一参数两套值。现在唯一的生产来源是 `HandwritingFeel`。
 //
 
 nonisolated struct StrokePipeline: Sendable {
@@ -16,12 +19,14 @@ nonisolated struct StrokePipeline: Sendable {
 
     /// 把有序笔画转成带压感与时序的重播序列。
     /// - Parameters:
-    ///   - polylines: 已排好顺序的笔画；调用方负责保证笔顺就是希望的作画顺序。
-    ///   - seed: 固定随机种子，保证同一输入每次输出一致，便于回归测试。
+    ///   - polylines: 已排好顺序的笔画，坐标须为页面坐标系（页面点）；
+    ///     调用方负责保证笔顺就是希望的书写顺序。
+    ///   - configuration: 手绘化参数。尺度相关字段必须已按参照尺度换算成页面点。
+    ///   - seed: 随机种子。同一输入配同一种子必然得到同一结果，手感回归测试依赖这一点。
     func process(
         _ polylines: [Polyline],
-        configuration: HumanizerConfiguration = HumanizerConfiguration(),
-        seed: UInt64 = 7
+        configuration: HumanizerConfiguration,
+        seed: UInt64
     ) -> StrokeSequence {
         humanizer.humanize(polylines, configuration: configuration, seed: seed)
     }
