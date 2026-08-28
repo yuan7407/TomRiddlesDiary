@@ -53,6 +53,10 @@ nonisolated struct WritingRhythm: Equatable, Sendable {
     /// 全部笔画自身的书写时长之和（不含停顿）。
     let inkDuration: TimeInterval
 
+    /// 空白页的节奏。给「还没写过任何东西」的调用方一个明确的值，
+    /// 免得每个调用点各自拼一个空构造。
+    static let empty = WritingRhythm(pauses: [], totalDuration: 0, inkDuration: 0)
+
     var longestPause: TimeInterval? { pauses.max() }
 
     /// 停顿的中位数。用中位数而不是平均值：一次长时间发呆会把平均值拉得毫无意义，

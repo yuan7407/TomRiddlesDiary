@@ -54,24 +54,34 @@ scripts/                  仓库工具：提交门禁（不属于 App，不会�
 | 项 | 状态 |
 |---|---|
 | Xcode / Simulator | ✅ iPadOS 27、仅 iPad、无签名 Simulator build 通过（需 Xcode 27） |
-| 笔画引擎 | ✅ 手绘化 + 压感 + 严格串行逐笔重播，92 个 XCTest 全通过 |
+| 笔画引擎 | ✅ 手绘化 + 压感 + 严格串行逐笔重播，124 个 XCTest 全通过 |
 | 单位契约 | ✅ 参数有物理含义，换字号自动同比例缩放，由测试守住 |
-| 回应渲染层 | ✅ 可用（`HandwritingReplayView`），但目前没有调用方 |
-| 手写识别 | ⚙️ 已接线（`HandwritingRecognizer`）。英文在模拟器可用；中文需真机（模拟器缺模型） |
-| 书写节奏 | ✅ 笔间停顿可测（`WritingRhythm`），E3c 的阈值将由它量出 |
-| 首屏 | ✅ 一段示例回应会用手写体逐字写在纸上（E8 脚手架，非最终效果） |
 | 排版层 | ✅ CoreText 断行，中英混排，字位置可断言 |
 | 手写体字体 | ✅ 寒蝉手拙体 v2.500 已打包（3.9 MB OTF） |
-| 字形笔顺数据 | ✅ 9574 汉字（5.26 MB），Arphic 1999 授权 |
-| **逐笔生长** | ✅ 汉字已能由引擎真正逐笔画出（Xcode Preview 可见）。标点与拉丁字母待补 |
-| 笔画输入源 | ✅ PencilKit 手写 → `[Polyline]`（`PencilStrokeReader`）。引擎第一次有真实输入 |
-| 手写识别 / 字形笔画 / 排版 / Oracle / 后端 / 存储 | ❌ 尚未接入 |
+| 字形笔顺数据 | ✅ 9574 汉字（5.26 MB），Arphic 1999 授权。标点与拉丁字母不在数据集内 |
+| **逐笔生长** | ✅ 汉字已能由引擎真正逐笔画出（Xcode Preview 可见） |
+| 笔画输入源 | ✅ PencilKit 手写 → `[Polyline]`（`PencilStrokeReader`） |
+| 手写识别 | ⚙️ 已接线（`HandwritingRecognizer`）。英文在模拟器可用；中文需真机（模拟器缺模型） |
+| 书写节奏 | ✅ 笔间停顿可测（`WritingRhythm`） |
+| 成页触发 | ✅ 阈值由本页停顿中位数算出（不是固定秒数）+ 终止标点加速 + 渗墨预告 + 悬停延长 |
+| 落笔中断 | ✅ 用户新落笔即停住重播，半截字留在页上（`ReplayPlayback` 三态） |
+| 首屏 | ⚙️ 一张能写字的纸。停笔会成页并读懂内容，**但读懂之后什么都不会发生**（Oracle 未接） |
+| Oracle / 后端 / 加密存储 | ❌ 尚未接入。这是当前链路上唯一缺的一环 |
 
 已删除且不再回溯的路线：位图抽骨架（Skeletonizer + StrokeTracer，实机线条质量差，见 Git `e08f4c3`）、Magic Stroke Lab 诊断界面与离线夹具、图像生成与图像回应。
 
 ## 运行与验证
 
-打开 `TomRiddlesDiary.xcodeproj`，scheme 选 `TomRiddlesDiary`，选一个 iPad Simulator 后 Run。当前会看到一张空白的暖米白纸，这是预期结果。
+打开 `TomRiddlesDiary.xcodeproj`，scheme 选 `TomRiddlesDiary`，选一个 iPad Simulator 后 Run。
+
+当前跑起来能看到什么：一张空白的暖米白纸。用鼠标（模拟器）或 Apple Pencil 写几个字，
+停笔一会儿后左上角会渗出一点墨——那是成页预告，此刻再写一笔就能取消。不写就会成页，
+DEBUG 读数（左下角）会显示笔数、停顿、算出来的成页阈值、当前阶段和识别结果。
+**成页之后不会有回应**，页面会如实说明魂（Oracle）还没接入。
+
+真正的逐笔生长和落笔中断在 Xcode 预览里看：打开 `DiaryPageView.swift`，
+选预览「真笔画逐笔生长 + 落笔中断（E1 + E3d）」，进去就会逐笔写字，
+你在纸上写一笔它就停在当时那一笔的半截上。
 
 最低系统是 iPadOS 27，所以**构建必须用 Xcode 27**。命令行下用 `DEVELOPER_DIR` 指定，不必改全局 `xcode-select`：
 
@@ -160,8 +170,8 @@ Simulator 能跑不等于体验通过：压感、书写节奏与手写识别准�
 | E3 | 拆成四小步。**PencilKit 本身 iOS 13 起就有，不需要等 Xcode 27**，只有识别要等 |
 | E3a（画布） | ✅ 2026-08-28。`HandwritingCanvas` 嵌入 `PKCanvasView`，与回应层共用纸色和页面坐标系；关掉滚动缩放（一页就是一页） |
 | E3b（读笔画） | ✅ 2026-08-28。`PencilStrokeReader` 把 `PKDrawing` 读成 `[Polyline]`，用 `.distance` 等距采样；力度如实报告有无，不编造压感 |
-| E3c（成页触发） | ⬜ 长停顿 + 终止标点加速 + 可撤销预告 + Pencil 悬停。测量能力已就绪（`WritingRhythm` 能算出笔间停顿的中位数与最长值），**阈值仍须用真实书写数据量出**，不能拍数字。还需先定版式（用户在哪写、魂在哪回应） |
-| E3d（落笔中断） | ⬜ 用户新落笔即中断接管重播，半截字留在页上 |
+| E3c（成页触发） | ✅ 2026-08-28。`PageCommitTrigger` 判断，`DiaryPageModel` 驱动。**阈值 = 本页停顿中位数 × 倍数**（不是固定秒数——书写本身就占 76% 的时间在停顿，固定秒数对写快写慢的人必有一方是错的）；终止标点按比例加速；等待期后段渗墨预告，再写一笔即取消；Pencil 悬停延长一段**有界**宽限（不能无限阻止成页）。倍数与上下限仍是量级推算，**真机 + Apple Pencil 的停顿分布拿到后必须复核** |
+| E3d（落笔中断） | ✅ 2026-08-28。`ReplayPlayback` 三态（在播 / 停在某进度 / 已写完）+ `ReplayInterruption`。落笔那一刻（`canvasViewDidBeginUsingTool`，不是等这一笔写完）停住重播，半截字留在页上。运行的 App 里还没有回应的生产者，可运行的证明在 `DiaryPageView` 的 Xcode 预览里 |
 | E4 | ⚙️ 识别已接线（2026-08-28）：`HandwritingRecognizer` 包装 `PKStrokeRecognizer`，把「请求的语言」与「本机能用的语言」的差异变成显式数据，不把「缺模型」混成「认不出」。英文可在模拟器跑通；**中文可用性与准确率仍须真机验证**（iPad 装 iPadOS 27 + Apple Pencil，中英混写样张） |
 | E5 | 端侧提取字迹指标 |
 | E6 | `OracleProvider` 协议 + Mock，离线打通完整闭环；失败只做诚实硬提示，绝不返回 Mock 冒充成功 |

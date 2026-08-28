@@ -17,16 +17,38 @@
 //  - `PKToolPicker` 不接：产品原则是写字那张纸上不放控件。用户只有一支笔，
 //    不选颜色不选粗细——魂的回应也一样。工具选择器留到确有需要时再谈。
 //
+//  三个事件与它们各自的用途（2026-08-29，计划 E3c/E3d）：
+//  - 落笔（`canvasViewDidBeginUsingTool`）：成页倒计时的取消点，也是打断重播的
+//    触发点。必须用落笔而不是「这一笔写完」——你正在写的时候，纸不该有自己的动作。
+//  - 抬笔（`canvasViewDidEndUsingTool`）：读笔画、识别、重新开始等待。
+//    不用 `canvasViewDrawingDidChange`，那个在一笔的绘制过程中会连续触发。
+//  - Apple Pencil 悬停：说明你还在写，用来延长等待。
+//
 
 import PencilKit
 import SwiftUI
 
 /// 用户手写的画布。
 struct HandwritingCanvas: UIViewRepresentable {
+    /// 笔刚落到纸上。
+    let onStrokeBegan: () -> Void
+
     /// 每次一笔写完时回调，带上当前整页的手写内容。
     /// 传整页而不是单笔：成页判断、识别、字迹指标都要看整页，
     /// 而单笔可以从整页里取最后一笔。
     let onStrokeFinished: (PKDrawing) -> Void
+
+    /// Apple Pencil 悬停状态变化。
+    ///
+    /// **硬件限制（已查证，不是可以修的问题）**：悬停只在 M2 及更新的 iPad 配
+    /// Apple Pencil Pro / 二代时可用（iPad Pro M4/M5、iPad Pro 11″ 四代、
+    /// iPad Pro 12.9″ 六代、iPad Air M2/M3、iPad mini A17 Pro），笔尖要进到屏幕
+    /// 约 1 cm 内。来源：[Apple Pencil 技术规格](https://support.apple.com/en-us/111889)、
+    /// [悬停距离实测](https://zenn.dev/usamik26/articles/pencil-hover?locale=en)。
+    ///
+    /// 因此在**模拟器和 iPad 10 上这个回调永远不会带 true**，成页判断走的是
+    /// 没有悬停的那条路径。这是设计上接受的：悬停是加分信号，主信号不依赖它。
+    let onPencilHoverChanged: (Bool) -> Void
 
     func makeUIView(context: Context) -> PKCanvasView {
         let canvas = PKCanvasView()
@@ -48,24 +70,52 @@ struct HandwritingCanvas: UIViewRepresentable {
             width: PageAppearance.userInkWidth
         )
 
+        let hover = UIHoverGestureRecognizer(
+            target: context.coordinator,
+            action: #selector(Coordinator.pencilHoverChanged(_:))
+        )
+        // 只接受 Apple Pencil 的触摸类型。**不加这个限制模拟器就没法开发**：
+        // 鼠标指针也会产生悬停事件，指针一直在画布上就等于一直悬停，
+        // 成页会被永久推后（`hoverGrace` 虽然有界，但每次轮询都会重新加一次）。
+        hover.allowedTouchTypes = [UITouch.TouchType.pencil.rawValue as NSNumber]
+        canvas.addGestureRecognizer(hover)
+
         return canvas
     }
 
     func updateUIView(_ canvas: PKCanvasView, context: Context) {
-        // 回调可能在每次视图更新时换成新的闭包，协调器必须持有最新那个，
+        // 回调可能在每次视图更新时换成新的闭包，协调器必须持有最新那些，
         // 否则会调到已经失效的旧闭包。
+        context.coordinator.onStrokeBegan = onStrokeBegan
         context.coordinator.onStrokeFinished = onStrokeFinished
+        context.coordinator.onPencilHoverChanged = onPencilHoverChanged
     }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(onStrokeFinished: onStrokeFinished)
+        Coordinator(
+            onStrokeBegan: onStrokeBegan,
+            onStrokeFinished: onStrokeFinished,
+            onPencilHoverChanged: onPencilHoverChanged
+        )
     }
 
     final class Coordinator: NSObject, PKCanvasViewDelegate {
+        var onStrokeBegan: () -> Void
         var onStrokeFinished: (PKDrawing) -> Void
+        var onPencilHoverChanged: (Bool) -> Void
 
-        init(onStrokeFinished: @escaping (PKDrawing) -> Void) {
+        init(
+            onStrokeBegan: @escaping () -> Void,
+            onStrokeFinished: @escaping (PKDrawing) -> Void,
+            onPencilHoverChanged: @escaping (Bool) -> Void
+        ) {
+            self.onStrokeBegan = onStrokeBegan
             self.onStrokeFinished = onStrokeFinished
+            self.onPencilHoverChanged = onPencilHoverChanged
+        }
+
+        func canvasViewDidBeginUsingTool(_ canvasView: PKCanvasView) {
+            onStrokeBegan()
         }
 
         /// 用 `canvasViewDidEndUsingTool` 而不是 `canvasViewDrawingDidChange`：
@@ -73,6 +123,20 @@ struct HandwritingCanvas: UIViewRepresentable {
         /// 误当成「写完一笔」。前者只在笔离开画布时触发一次。
         func canvasViewDidEndUsingTool(_ canvasView: PKCanvasView) {
             onStrokeFinished(canvasView.drawing)
+        }
+
+        /// 悬停手势的状态变化。
+        /// `.began`/`.changed` 是笔进到范围内，其余都当成离开——
+        /// 把 `.cancelled`/`.failed` 也算成离开是刻意的：宁可少延长等待，
+        /// 也不能让一次异常的手势状态把成页卡住。
+        @objc
+        func pencilHoverChanged(_ recognizer: UIHoverGestureRecognizer) {
+            switch recognizer.state {
+            case .began, .changed:
+                onPencilHoverChanged(true)
+            default:
+                onPencilHoverChanged(false)
+            }
         }
     }
 }
