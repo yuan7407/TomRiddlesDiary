@@ -124,8 +124,12 @@ struct DiaryPageView: View {
     DiaryPageView()
 }
 
-#Preview("回应渲染（假文字，仅供看排版）") {
+#Preview("回应渲染 · 字体版（E8 脚手架）") {
     ResponseLayoutPreview()
+}
+
+#Preview("回应渲染 · 真笔画逐笔生长（E1）") {
+    GlyphStrokeReplayPreview()
 }
 
 private struct ResponseLayoutPreview: View {
@@ -177,6 +181,88 @@ private struct ResponseLayoutPreview: View {
             } catch {
                 failure = String(describing: error)
             }
+        }
+    }
+}
+
+/// 开发期预览：**真正的逐笔生长**——文字查成字形笔画，喂进笔画引擎，一笔一笔画出来。
+/// 这条路径第一次把 `GlyphStrokeLayout → StrokePipeline → HandwritingReplayView`
+/// 串起来，也是笔画引擎自建成以来第一次真正被用上。
+/// 文字是假的，只存在于 Xcode 预览里。
+private struct GlyphStrokeReplayPreview: View {
+    /// 纯汉字：当前字形数据集不含标点与拉丁字母（属计划 E1c/E1d），
+    /// 用带标点的句子会看到缺字，反而看不清逐笔生长本身。
+    private static let sampleResponse = "我看见你今天写得很慢"
+
+    private enum State2 {
+        case notReady
+        case ready(StrokeSequence, uncovered: [Character])
+        case failed(String)
+    }
+
+    @State private var state: State2 = .notReady
+    @State private var startedAt: ContinuousClock.Instant?
+    @State private var size: CGSize = .zero
+
+    var body: some View {
+        GeometryReader { geometry in
+            ZStack(alignment: .topLeading) {
+                PageAppearance.paper
+
+                switch state {
+                case .notReady:
+                    Color.clear
+                case .failed(let reason):
+                    Text("写不出来：\(reason)")
+                        .font(.footnote)
+                        .foregroundStyle(PageAppearance.ink)
+                        .padding(PageAppearance.pageMargin(for: geometry.size))
+                case .ready(let sequence, let uncovered):
+                    HandwritingReplayView(
+                        sequence: sequence,
+                        replayStartedAt: startedAt
+                    )
+                    if !uncovered.isEmpty {
+                        // 缺字如实说出来，不让页面凭空少东西而无人知晓。
+                        Text("缺笔顺数据：\(String(uncovered))")
+                            .font(.caption2)
+                            .foregroundStyle(PageAppearance.ink.opacity(0.5))
+                            .padding(PageAppearance.pageMargin(for: geometry.size))
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+                    }
+                }
+            }
+            .onAppear { size = geometry.size }
+            .onChange(of: geometry.size) { _, new in size = new }
+        }
+        .ignoresSafeArea()
+        .task(id: size) { await build() }
+    }
+
+    private func build() async {
+        guard size.width > 0, size.height > 0 else { return }
+        let margin = PageAppearance.pageMargin(for: size)
+        let glyphSize = HandwritingFeel.referenceGlyphHeightInPoints
+
+        do {
+            let laidOut = try GlyphStrokeLayout().layOut(
+                Self.sampleResponse,
+                configuration: GlyphStrokeLayoutConfiguration(
+                    glyphSize: glyphSize,
+                    lineWidth: max(glyphSize, size.width - margin * 2),
+                    lineSpacingRatio: PageAppearance.lineSpacingRatio,
+                    origin: CGPoint(x: margin, y: margin)
+                )
+            )
+            let sequence = StrokePipeline().process(
+                laidOut.polylines,
+                configuration: HandwritingFeel.humanizerConfiguration(referenceScale: glyphSize),
+                seed: HandwritingFeel.defaultSeed
+            )
+            state = .ready(sequence, uncovered: laidOut.uncoveredCharacters)
+            startedAt = ContinuousClock.now
+        } catch {
+            state = .failed(String(describing: error))
         }
     }
 }

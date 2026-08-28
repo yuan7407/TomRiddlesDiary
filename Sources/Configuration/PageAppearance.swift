@@ -45,15 +45,14 @@ nonisolated enum PageAppearance {
         min(size.width, size.height) * pageMarginRatio
     }
 
-    /// 用户手写用的笔尖粗细（毫米）。
+    /// 笔尖粗细（毫米）。**用户和「日记之魂」用的是同一支笔。**
     ///
-    /// 为什么用绝对毫米而不是字高的比例：这是用户手里那支笔的粗细，
-    /// 用户想写多大就写多大，笔不会跟着变粗。这与「魂的墨宽按字高比例算」
-    /// 是刻意不同的两个选择——魂的字是排版排出来的，字号由我们决定；
-    /// 用户的字是手写的，字号由用户决定。
+    /// 用绝对毫米而不是字高的比例：真实的笔不会因为字写得小就变细。
+    /// 2026-08-28 起魂的墨宽也由这个值推导（见 `inkWidth(forPressure:)`），
+    /// 原因是实测发现按字高比例算出来的墨宽达 1.11 mm，笔画密集的汉字会糊成一团，
+    /// 且与用户自己的字质感明显不同。
     ///
-    /// 0.5 mm 对应常见中性笔。数值只是量级推算，**真机手写观感待复核**：
-    /// 要看的是它与魂的回应粗细是否相称——魂应该像用同一支笔写的。
+    /// 0.5 mm 对应常见中性笔。数值仍只是量级推算，真机手写观感待复核。
     static let userInkWidthInMillimeters: Double = 0.5
 
     /// 用户笔尖粗细换算成视图点。
@@ -61,14 +60,15 @@ nonisolated enum PageAppearance {
         PageMetrics.points(fromMillimeters: userInkWidthInMillimeters)
     }
 
-    /// 把 0…1 的压感换算成墨线宽度（视图点）。
-    /// - Parameters:
-    ///   - pressure: 0…1 的压感。超出范围时夹紧，避免异常数据画出负宽度。
-    ///   - referenceScale: 参照尺度，即一个字的高度（视图点）。传 nil 用默认字高。
-    static func inkWidth(forPressure pressure: Double, referenceScale: Double? = nil) -> Double {
-        let scale = referenceScale ?? HandwritingFeel.referenceGlyphHeightInPoints
-        let minimum = scale * HandwritingFeel.inkMinimumWidthRatio
-        let gain = scale * HandwritingFeel.inkPressureWidthGainRatio
-        return minimum + min(1, max(0, pressure)) * gain
+    /// 把 0…1 的压感换算成魂的墨线宽度（视图点）。
+    ///
+    /// **是绝对宽度，不随字号缩放**：魂和用户用同一支笔，而真实的笔不会因为字写得小
+    /// 就变细。满压等于用户笔宽，最轻是它的 `inkWidthAtLightestPressureRatio`。
+    ///
+    /// - Parameter pressure: 0…1 的压感。超出范围时夹紧，避免异常数据画出负宽度。
+    static func inkWidth(forPressure pressure: Double) -> Double {
+        let lightest = userInkWidth * HandwritingFeel.inkWidthAtLightestPressureRatio
+        let span = userInkWidth - lightest
+        return lightest + min(1, max(0, pressure)) * span
     }
 }

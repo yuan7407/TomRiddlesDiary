@@ -39,12 +39,9 @@ import SwiftUI
 ///   - sequence: 已经过 StrokeHumanizer 处理的笔画序列，坐标须为页面坐标系（页面点）。
 ///   - replayStartedAt: 起播时刻，取自单调时钟 `ContinuousClock`。
 ///     传 nil 表示不在播放，此时直接显示画完的最终状态。
-///   - referenceScale: 这段文字排版时用的字高（页面点）。墨的粗细按它换算，
-///     所以写大字时墨也相应变粗，比例关系不变。
 struct HandwritingReplayView: View {
     let sequence: StrokeSequence
     let replayStartedAt: ContinuousClock.Instant?
-    let referenceScale: Double
 
     var body: some View {
         // TimelineView 只用来驱动重绘；具体过了多少秒问单调时钟，不用它给的 Date。
@@ -93,7 +90,7 @@ struct HandwritingReplayView: View {
 
     private func drawDot(_ sample: StrokeSample, in context: inout GraphicsContext) {
         let center = viewPoint(sample.point)
-        let width = inkWidth(forPressure: sample.pressure)
+        let width = PageAppearance.inkWidth(forPressure: sample.pressure)
         context.fill(
             Path(ellipseIn: CGRect(
                 x: center.x - width / 2,
@@ -117,15 +114,11 @@ struct HandwritingReplayView: View {
             path,
             with: .color(PageAppearance.ink),
             style: StrokeStyle(
-                lineWidth: inkWidth(forPressure: (start.pressure + end.pressure) / 2),
+                lineWidth: PageAppearance.inkWidth(forPressure: (start.pressure + end.pressure) / 2),
                 lineCap: .round,
                 lineJoin: .round
             )
         )
-    }
-
-    private func inkWidth(forPressure pressure: Double) -> Double {
-        PageAppearance.inkWidth(forPressure: pressure, referenceScale: referenceScale)
     }
 
     /// 页面坐标到视图坐标：1:1，不缩放不平移。缩放是页面层的职责，不是墨层的。

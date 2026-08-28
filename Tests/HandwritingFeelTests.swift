@@ -52,19 +52,37 @@ nonisolated final class HandwritingFeelTests: XCTestCase {
         XCTAssertEqual(implicitScale, explicitScale)
     }
 
-    /// 墨线宽度同样随字号成比例，且压感越大越粗、被夹在合法区间内。
-    func testInkWidthScalesWithReferenceScaleAndIsBounded() {
-        let thin = PageAppearance.inkWidth(forPressure: 0, referenceScale: 40)
-        let thick = PageAppearance.inkWidth(forPressure: 1, referenceScale: 40)
-        let thinAtDoubleScale = PageAppearance.inkWidth(forPressure: 0, referenceScale: 80)
+    /// 魂的墨宽必须等于用户那支笔的粗细范围——两者用同一支笔。
+    ///
+    /// 这条断言 2026-08-28 改过。原先断言的是「墨宽随字号成比例」，那是个设计选择；
+    /// 实测发现按比例算出的满压宽度达 1.11 mm（真实钢笔的两倍多），笔画密集的汉字
+    /// 会糊成一团，且与用户自己的字质感不同，于是改成绝对宽度并由用户笔宽推导。
+    /// 断言随设计一起改，而不是留着一条描述旧设计的测试。
+    func testInkWidthMatchesTheUserPenAndIsBounded() {
+        let lightest = PageAppearance.inkWidth(forPressure: 0)
+        let fullest = PageAppearance.inkWidth(forPressure: 1)
 
-        XCTAssertGreaterThan(thin, 0, "落笔就该有宽度，不能是 0")
-        XCTAssertGreaterThan(thick, thin)
-        XCTAssertEqual(thinAtDoubleScale, thin * 2, accuracy: 1e-12)
+        XCTAssertGreaterThan(lightest, 0, "落笔就该有宽度，不能是 0")
+        XCTAssertGreaterThan(fullest, lightest, "压感越大越粗")
+        XCTAssertEqual(fullest, PageAppearance.userInkWidth, accuracy: 1e-12, "满压应等于用户那支笔的粗细")
+        XCTAssertEqual(
+            lightest,
+            PageAppearance.userInkWidth * HandwritingFeel.inkWidthAtLightestPressureRatio,
+            accuracy: 1e-12
+        )
 
         // 压感越界时必须夹紧，异常数据不能画出负宽度或无限粗的线。
-        XCTAssertEqual(PageAppearance.inkWidth(forPressure: -5, referenceScale: 40), thin, accuracy: 1e-12)
-        XCTAssertEqual(PageAppearance.inkWidth(forPressure: 5, referenceScale: 40), thick, accuracy: 1e-12)
+        XCTAssertEqual(PageAppearance.inkWidth(forPressure: -5), lightest, accuracy: 1e-12)
+        XCTAssertEqual(PageAppearance.inkWidth(forPressure: 5), fullest, accuracy: 1e-12)
+    }
+
+    /// 墨宽必须落在真实笔尖的量级内。这条是防呆：若哪天有人把笔宽改成荒谬值，
+    /// 或者不小心又改回按字号缩放，这里会红。依据是实测发现 1.11 mm 会让汉字糊掉。
+    func testInkWidthStaysWithinRealisticPenRange() {
+        let widestInMillimeters = PageMetrics.millimeters(fromPoints: PageAppearance.inkWidth(forPressure: 1))
+
+        XCTAssertGreaterThan(widestInMillimeters, 0.1, "比 0.1 mm 还细的笔在纸上几乎看不见")
+        XCTAssertLessThan(widestInMillimeters, 0.8, "超过 0.8 mm 会让笔画密集的汉字糊成一团")
     }
 
     /// 毫米与页面点的换算必须可往返，且方向正确（毫米越大，点数越多）。
