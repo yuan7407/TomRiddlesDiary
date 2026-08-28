@@ -53,33 +53,33 @@ nonisolated final class DiaryPageModelTests: XCTestCase {
         DiaryPageModel(trigger: fastTrigger)
     }
 
-    /// 造一页手写：三笔，笔间停顿 0.05 秒，好让中位停顿量得出来。
-    private func makeDrawing(strokeCount: Int = 3) -> PKDrawing {
-        let base = Date()
-        var strokes: [PKStroke] = []
-        for index in 0 ..< strokeCount {
-            var points: [PKStrokePoint] = []
-            for step in 0 ... 8 {
-                let t = CGFloat(step) / 8
-                points.append(PKStrokePoint(
-                    location: CGPoint(x: 40 + t * 50, y: 80 + CGFloat(index) * 40),
-                    timeOffset: Double(t) * 0.1,
-                    size: CGSize(width: 3, height: 3),
-                    opacity: 1,
-                    force: 0,
-                    azimuth: 0,
-                    altitude: .pi / 2
-                ))
-            }
-            strokes.append(PKStroke(
-                ink: PKInk(.pen, color: .black),
-                path: PKStrokePath(
-                    controlPoints: points,
-                    creationDate: base.addingTimeInterval(Double(index) * 0.15)
-                )
+    /// 造一笔。落笔时刻显式传入，这样「哪一笔属于哪一轮」可以精确断言。
+    private func makeStroke(startingAt start: Date, row: Int = 0) -> PKStroke {
+        var points: [PKStrokePoint] = []
+        for step in 0 ... 8 {
+            let t = CGFloat(step) / 8
+            points.append(PKStrokePoint(
+                location: CGPoint(x: 40 + t * 50, y: 80 + CGFloat(row) * 40),
+                timeOffset: Double(t) * 0.1,
+                size: CGSize(width: 3, height: 3),
+                opacity: 1,
+                force: 0,
+                azimuth: 0,
+                altitude: .pi / 2
             ))
         }
-        return PKDrawing(strokes: strokes)
+        return PKStroke(
+            ink: PKInk(.pen, color: .black),
+            path: PKStrokePath(controlPoints: points, creationDate: start)
+        )
+    }
+
+    /// 造一页手写：默认三笔，笔间停顿 0.05 秒，好让中位停顿量得出来。
+    private func makeDrawing(strokeCount: Int = 3) -> PKDrawing {
+        let base = Date()
+        return PKDrawing(strokes: (0 ..< strokeCount).map { index in
+            makeStroke(startingAt: base.addingTimeInterval(Double(index) * 0.15), row: index)
+        })
     }
 
     private func makeSequence(totalDuration: TimeInterval) -> StrokeSequence {
@@ -110,16 +110,16 @@ nonisolated final class DiaryPageModelTests: XCTestCase {
     // MARK: E3c 成页触发
 
     @MainActor
-    func testBlankPageStaysBlank() async {
+    func testBlankPageHasNothingNew() async {
         let model = makeModel()
 
-        XCTAssertEqual(model.phase, .blank)
+        XCTAssertEqual(model.phase, .nothingNew)
         model.strokeFinished(PKDrawing())
 
-        XCTAssertEqual(model.phase, .blank, "一笔都没有就没有什么可回应的")
+        XCTAssertEqual(model.phase, .nothingNew, "一笔都没有就没有什么可回应的")
         // 空白页不该起倒计时。等到远超阈值仍应是空白。
         try? await Task.sleep(for: .milliseconds(400))
-        XCTAssertEqual(model.phase, .blank)
+        XCTAssertEqual(model.phase, .nothingNew)
     }
 
     /// 核心用例：抬笔之后不再写，倒计时必须一路走到成页。
@@ -215,6 +215,65 @@ nonisolated final class DiaryPageModelTests: XCTestCase {
         XCTAssertEqual(unmeasured, InteractionSettings.pageCommit.longestWait, accuracy: 0.001,
                        "还没写过时取上限")
         XCTAssertLessThan(measured, unmeasured, "量到节奏之后阈值应该由节奏决定")
+    }
+
+    // MARK: E3e 只处理这一轮写的内容
+
+    /// 成页之后如果只是把旧内容留在页上、没有写新东西，就不该再成页一次。
+    /// 否则接上 Oracle 之后魂会把同一段话反复回应（还反复花钱）。
+    @MainActor
+    func testCommittedContentIsNotOfferedAgain() async {
+        let model = makeModel()
+        let page = makeDrawing()
+
+        model.strokeFinished(page)
+        await waitUntil("第一轮成页") { model.phase == .awaitingSoul }
+
+        // 同一份内容再抬一次笔（例如用户点了一下又拿开，页面没变）。
+        model.strokeBegan()
+        model.strokeFinished(page)
+
+        XCTAssertEqual(model.phase, .nothingNew, "没有新内容就不该有新一轮")
+        // 等到远超阈值也不该成页。
+        try? await Task.sleep(for: .milliseconds(700))
+        XCTAssertEqual(model.phase, .nothingNew)
+    }
+
+    /// 成页之后接着写，必须开始新的一轮，而且读到的只有新写的那部分。
+    @MainActor
+    func testWritingAfterCommitStartsANewRoundWithOnlyTheNewStrokes() async {
+        let model = makeModel()
+        let firstRound = makeDrawing(strokeCount: 3)
+
+        model.strokeFinished(firstRound)
+        await waitUntil("第一轮成页") { model.phase == .awaitingSoul }
+
+        // 页面上原有三笔，再加两笔新的（落笔时刻明显更晚）。
+        let base = Date().addingTimeInterval(60)
+        let extra = (0 ..< 2).map { index in
+            makeStroke(startingAt: base.addingTimeInterval(Double(index) * 0.2))
+        }
+        model.strokeBegan()
+        model.strokeFinished(PKDrawing(strokes: firstRound.strokes + extra))
+
+        XCTAssertEqual(model.phase, .waiting, "有新内容就要开始新一轮")
+        XCTAssertEqual(model.reading?.polylines.count, 2, "读到的应该只有新写的两笔，不含已收下的三笔")
+    }
+
+    // MARK: E4b 落笔前告知识别能力
+
+    /// 识别能力必须能在**没有写任何东西之前**就查出来，否则「写之前告知」做不到。
+    @MainActor
+    func testRecognitionAvailabilityIsKnownBeforeAnyWriting() async {
+        let model = makeModel()
+        XCTAssertNil(model.recognitionAvailability, "还没查过")
+
+        await model.loadRecognitionAvailability()
+
+        let availability = model.recognitionAvailability
+        XCTAssertNotNil(availability, "查完之后必须有结论，不能是 nil 含糊过去")
+        XCTAssertEqual(model.phase, .nothingNew, "查询不该改变页面阶段")
+        XCTAssertEqual(availability?.requested, InteractionSettings.recognitionLanguages)
     }
 
     // MARK: E3d 落笔中断

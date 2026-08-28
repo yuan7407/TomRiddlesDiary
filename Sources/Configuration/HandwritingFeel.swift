@@ -45,10 +45,37 @@ nonisolated enum HandwritingFeel {
     /// 即一个字高约 29 个点。够密以表现曲线，又不至于让抖动退化成高频毛刺。
     static let sampleSpacingRatio: Double = 0.035
 
-    /// 手抖幅度（标准差）占字高的比例。0.018 → 约 0.16 mm。
-    /// 注意：在计划 A1 把抖动改成沿笔画的相关噪声之前，这里仍是逐点独立的白噪声，
-    /// 看起来会像毛刺而不是手抖，因此幅度刻意取小以免难看。
-    static let jitterAmplitudeRatio: Double = 0.018
+    /// 手抖幅度（标准差）占字高的比例，沿笔画法线方向。0.03 → 约 0.27 mm，
+    /// 摆动的峰值偏离理想路径约 0.5 mm（9 mm 的字上大约是字高的 5%）。
+    ///
+    /// 2026-08-29（计划 A1）从 0.018 提到 0.03。原值之所以那么小，是因为当时抖动是
+    /// 逐点独立的白噪声，看起来是毛刺不是手抖，只能靠压小幅度来掩盖难看。
+    /// 现在抖动是沿笔画的连续摆动（会把线掰弯而不是让边缘起锯齿），
+    /// 幅度可以取一个说得通的值了。
+    ///
+    /// **仍然没有测量依据**，只是量级推算：真人手写偏离理想路径显然比字高的 5% 更多，
+    /// 所以这个值偏保守。计划 A10 用真机笔迹校准前不得称它已验证。
+    static let jitterAmplitudeRatio: Double = 0.03
+
+    /// 生理性手抖的频率（赫兹）。
+    ///
+    /// 这是**有出处的人体常量**，不是拍出来的手感数字：人手在维持姿态时存在
+    /// 8–12 Hz 的生理性震颤，取中间值 10。
+    ///
+    /// 为什么要它：抖动的波长（走多远摆一次）本身可以直接写一个数，但那样就和
+    /// 书写速度脱钩了——改书写速度时波长不跟着变，两个参数会打架。
+    /// 由频率与速度推出来就不会有这个问题（见 `jitterWavelengthInReferenceScales`）。
+    static let handTremorFrequencyInHertz: Double = 10
+
+    /// 手抖波长占字高的比例。**不是独立参数**，由书写速度与手抖频率推出。
+    ///
+    /// 笔尖以每秒 `inkLengthPerSecondInReferenceScales` 个字高前进，抖动每秒摆
+    /// `handTremorFrequencyInHertz` 个整周期，因此一个整周期占 速度 ÷ 频率 的长度，
+    /// 而波长在这里定义为「从一个极值到下一个极值」，即半个周期，故再除以 2。
+    /// 当前取值算出来是 7.5 ÷ 20 = 0.375 个字高（9 mm 的字约 3.4 mm 摆一次）。
+    static var jitterWavelengthInReferenceScales: Double {
+        inkLengthPerSecondInReferenceScales / (2 * handTremorFrequencyInHertz)
+    }
 
     /// 每秒画过多少个「字高」的墨迹长度。
     /// 推算：中文手写约每秒 1.5 个字，一个字的墨迹总长约 5 个字高，故约 7.5。
@@ -117,6 +144,7 @@ nonisolated enum HandwritingFeel {
         return HumanizerConfiguration(
             sampleSpacing: scale * sampleSpacingRatio,
             jitterAmplitude: scale * jitterAmplitudeRatio,
+            jitterWavelength: scale * jitterWavelengthInReferenceScales,
             inkLengthPerSecond: scale * inkLengthPerSecondInReferenceScales,
             durationVariation: durationVariation,
             minimumDuration: minimumDuration,
