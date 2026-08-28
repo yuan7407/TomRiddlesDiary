@@ -104,10 +104,12 @@ nonisolated enum PageCommitDecision: Equatable, Sendable {
     case keepWaiting
 
     /// 预告期：马上就要成页了，此刻再写一笔即可取消。
-    /// - remaining: 还剩多少秒。给诊断读数用。
-    /// - imminence: 0…1，预告期走过了多少。给渲染用（墨越洇越开），
-    ///   这样渲染层不需要知道等待时长是多少。
-    case aboutToCommit(remaining: TimeInterval, imminence: Double)
+    /// - remaining: 还剩多少秒。
+    ///
+    /// 2026-08-29 去掉了原先的 `imminence`（0…1 的接近程度）。它当初只有一个用途：
+    /// 驱动纸上那团墨越洇越开。那个视觉已经撤掉（用户实测觉得像 bug），
+    /// 留着一个没人读的值就是死代码。真要做「越来越近」的表现时再加回来。
+    case aboutToCommit(remaining: TimeInterval)
 
     /// 成页：这一页写完了。
     case commit
@@ -184,10 +186,7 @@ nonisolated struct PageCommitTrigger: Sendable {
         let hintWindow = wait * configuration.hintFraction
         guard remaining <= hintWindow else { return .keepWaiting }
 
-        return .aboutToCommit(
-            remaining: remaining,
-            imminence: min(1, max(0, 1 - remaining / hintWindow))
-        )
+        return .aboutToCommit(remaining: remaining)
     }
 
     /// 认出来的文字是不是以终止标点收尾。
