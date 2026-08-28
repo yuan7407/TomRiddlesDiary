@@ -20,13 +20,17 @@ nonisolated struct StrokeReplayTimeline: Sendable {
         sequence.totalDuration
     }
 
-    /// 第 index 笔的起笔时刻，等于它前面所有笔的时长之和。
-    /// 时长非负由 `TimedStroke` 的构造校验保证，这里不再重复夹取（计划 D3）。
+    /// 第 index 笔真正落墨的时刻。
+    ///
+    /// 等于「它前面所有笔占用的时间」加上「它自己那段抬笔移动」（计划 A4）：
+    /// 抬笔移动发生在落墨之前，所以要算进起笔时刻里。
+    /// 两个时长非负都由 `TimedStroke` 的构造校验保证，这里不再重复夹取（计划 D3）。
     func startTime(forStrokeAt index: Int) -> TimeInterval {
         precondition(sequence.strokes.indices.contains(index), "Stroke index is out of range")
-        return sequence.strokes[..<index].reduce(into: 0) { total, stroke in
-            total += stroke.duration
+        let before = sequence.strokes[..<index].reduce(into: 0.0) { total, stroke in
+            total += stroke.totalDuration
         }
+        return before + sequence.strokes[index].pauseBefore
     }
 
     func frame(at elapsedTime: TimeInterval) -> ReplayFrame {
@@ -37,24 +41,38 @@ nonisolated struct StrokeReplayTimeline: Sendable {
         progress.reserveCapacity(sequence.strokes.count)
 
         for stroke in sequence.strokes {
+            // 落墨的起止时刻。抬笔移动发生在落墨之前，那段时间这一笔还没出现（A4）。
+            //
+            // 这里刻意用 `cursor + stroke.totalDuration` 求终点，而不是先
+            // `cursor += pauseBefore` 再比 `cursor + duration`：后者的浮点累加顺序与
+            // `StrokeSequence.totalDuration` 不同，笔数多了以后
+            // `frame(at: totalDuration)` 会差出一个尾数、最后一笔差一点点画不完。
+            // 这个问题 2026-08-29 被 `GlyphStrokeTests` 的端到端用例抓到过。
+            let inkStart = cursor + stroke.pauseBefore
+            let inkEnd = cursor + stroke.totalDuration
+
             // 时长非负由 TimedStroke 保证，这里不再重复夹取（计划 D3）。
             let duration = stroke.duration
             let strokeProgress: Double
 
             if duration == 0 {
                 // 零时长的笔（例如单个墨点）不能除零，到点即视为完成。
-                strokeProgress = elapsed >= cursor ? 1 : 0
-            } else if elapsed <= cursor {
+                strokeProgress = elapsed >= inkStart ? 1 : 0
+            } else if elapsed <= inkStart {
                 strokeProgress = 0
-            } else if elapsed >= cursor + duration {
+            } else if elapsed >= inkEnd {
                 strokeProgress = 1
             } else {
-                strokeProgress = (elapsed - cursor) / duration
+                // 起笔加速、收笔减速（计划 A3）。时间是匀速流的，
+                // 但「时间过了一半」不等于「线画了一半」——缓动就加在这里。
+                // 为什么加在时间轴而不是几何那侧：`StrokeGrowth` 只负责
+                // 「给定进度，线画到哪」，它不该知道时间的事。
+                strokeProgress = StrokeEasing.progress((elapsed - inkStart) / duration)
             }
 
             progress.append(min(1, max(0, strokeProgress)))
             // cursor 累加后才处理下一笔，这就是“严格串行”的实现点。
-            cursor += duration
+            cursor += stroke.totalDuration
         }
 
         return ReplayFrame(progressByStroke: progress)

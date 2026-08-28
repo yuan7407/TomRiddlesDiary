@@ -34,7 +34,11 @@ nonisolated extension HumanizerConfiguration {
         pressureVariation: Double = 0,
         minimumPressure: Double = 0.12,
         maximumPressure: Double = 0.92,
-        taperFraction: Double = 0.16
+        pressureWavelength: Double = 12,
+        curvaturePressureGain: Double = 0,
+        taperFraction: Double = 0.16,
+        airSpeedMultiple: Double = 2.5,
+        penLiftDuration: TimeInterval = 0
     ) -> HumanizerConfiguration {
         HumanizerConfiguration(
             sampleSpacing: sampleSpacing,
@@ -47,7 +51,11 @@ nonisolated extension HumanizerConfiguration {
             pressureVariation: pressureVariation,
             minimumPressure: minimumPressure,
             maximumPressure: maximumPressure,
-            taperFraction: taperFraction
+            pressureWavelength: pressureWavelength,
+            curvaturePressureGain: curvaturePressureGain,
+            taperFraction: taperFraction,
+            airSpeedMultiple: airSpeedMultiple,
+            penLiftDuration: penLiftDuration
         )
     }
 }

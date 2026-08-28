@@ -97,7 +97,39 @@ nonisolated enum HandwritingFeel {
     static let minimumDuration: TimeInterval = 0.12
 
     static let basePressure: Double = 0.7
+
+    /// 压感起伏的幅度（标准差）。
+    ///
+    /// 2026-08-29（计划 A2）**刻意没有跟着抖动一起调大**。抖动的幅度当初被压小，
+    /// 是因为白噪声难看、有明确的记录可查；压感这个值没有同样的记录，
+    /// 它只是早期肉眼调过的数。在没有依据的情况下改它就是乱调，所以保持原值，
+    /// 等 A10 用真机笔迹一起校准。
     static let pressureVariation: Double = 0.07
+
+    /// 力度明显变化的频率（赫兹）。
+    ///
+    /// 「按得多重」跟的是手臂与手腕的用力，改变的节奏在每秒几次这个量级——
+    /// 比 10 Hz 的生理性手抖慢一个数量级。2.5 Hz 是这个量级的取值，
+    /// **没有测量依据**，待 A10 用真机笔迹核实。
+    ///
+    /// 和手抖频率同样的理由：写成频率而不是直接写波长，波长才能随书写速度自动跟着变。
+    static let pressureChangeFrequencyInHertz: Double = 2.5
+
+    /// 压感起伏的波长占字高的比例。**不是独立参数**，由书写速度与上面那个频率推出。
+    /// 当前取值是 7.5 ÷ 5 = 1.5 个字高（9 mm 的字约 13.5 mm 起伏一次）。
+    static var pressureWavelengthInReferenceScales: Double {
+        inkLengthPerSecondInReferenceScales / (2 * pressureChangeFrequencyInHertz)
+    }
+
+    /// 转折处的压感加成（无量纲）。原路折回（180°）时压感增加这么多。
+    ///
+    /// 为什么有这一项：笔在急转处必须减速甚至几乎停住，笔尖停留久了墨就渗得多，
+    /// 所以拐角比直线段粗。这是钢笔和毛笔写字时看得见的效果，也是拐角显得有力的原因；
+    /// 没有它，横折竖折这些笔画的转角会显得很塌。
+    ///
+    /// 0.2 的含义是「最急的转折比笔直处重两成」（压感量程 0…1）。
+    /// 取值明显但不至于抢戏，**没有测量依据**，待 A10 核实。
+    static let curvaturePressureGain: Double = 0.2
     static let minimumPressure: Double = 0.12
     static let maximumPressure: Double = 0.92
 
@@ -119,6 +151,23 @@ nonisolated enum HandwritingFeel {
     static let inkWidthAtLightestPressureRatio: Double = 0.6
 
     // MARK: 随机种子
+
+    // MARK: 笔间的抬笔移动（计划 A4）
+
+    /// 抬笔在空中移动时，速度是落墨速度的几倍。
+    ///
+    /// 笔在空中比在纸上快，因为它不需要沿途描出形状，是一个弹道式的跳跃。
+    /// 2.5 是量级推算，**没有测量依据**：真人的抬笔移动比落墨明显快，但快多少
+    /// 要靠真机笔迹里的抬笔时间来定（计划 A10）。
+    ///
+    /// 用倍数而不是直接写空中速度：两者是同一只手在动，写成倍数就只有一个物理关系，
+    /// 改书写速度时它自动跟着变，不会出现两个数打架。
+    static let airSpeedMultipleOfInkSpeed: Double = 2.5
+
+    /// 抬笔离纸与落笔触纸的固定耗时（秒），与移动距离无关。
+    /// 绝对时间：这段耗时来自手腕的动作，不随字号变化。
+    /// 0.05 秒同样只是量级推算，待真机笔迹核实。
+    static let penLiftDuration: TimeInterval = 0.05
 
     /// 默认随机种子。同一输入配同一种子必然得到同一结果。
     /// 现状的副作用：同一段文字每次重播的抖动完全一样。等 Oracle 接入后应改为
@@ -152,7 +201,11 @@ nonisolated enum HandwritingFeel {
             pressureVariation: pressureVariation,
             minimumPressure: minimumPressure,
             maximumPressure: maximumPressure,
-            taperFraction: taperFraction
+            pressureWavelength: scale * pressureWavelengthInReferenceScales,
+            curvaturePressureGain: curvaturePressureGain,
+            taperFraction: taperFraction,
+            airSpeedMultiple: airSpeedMultipleOfInkSpeed,
+            penLiftDuration: penLiftDuration
         )
     }
 }

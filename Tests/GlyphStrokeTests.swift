@@ -33,21 +33,37 @@ nonisolated final class GlyphStrokeTests: XCTestCase {
         }
     }
 
-    /// 标点、拉丁字母、数字**不在**数据集里，这是已知缺口（计划 E1c/E1d 要补）。
-    /// 断言它「确实缺」而不是假装有：哪天补上了，这条会失败并提醒我们更新。
-    func testPunctuationAndLatinAreKnownGaps() {
-        for character in "，。？！、abcABC123" {
-            XCTAssertFalse(
+    /// 标点已由 `PunctuationStrokes` 补上（计划 E1c，2026-08-29）。
+    /// 数据文件本身仍然不含它们，覆盖来自手写定义那张表。
+    func testPunctuationIsNowCovered() {
+        for character in "，。？！、：；「」（）《》…—·.,?!:;'\"()-" {
+            XCTAssertTrue(
                 provider.covers(character),
-                "「\(character)」意外地有了笔顺数据——若已补上，请更新此断言与 E1c/E1d 状态"
+                "标点「\(character)」应已由 E1c 补上"
             )
+        }
+    }
+
+    /// 拉丁字母与数字已由 `LatinStrokes` 补上（计划 E1d，2026-08-29）。
+    /// 26 个小写、26 个大写、10 个数字，一个都不许漏——漏一个就会在英文单词里
+    /// 留一个空洞，而且只有真的写到那个字母才会发现。
+    func testLatinLettersAndDigitsAreNowCovered() {
+        for character in "abcdefghijklmnopqrstuvwxyz" {
+            XCTAssertTrue(provider.covers(character), "小写「\(character)」应已由 E1d 补上")
+        }
+        for character in "ABCDEFGHIJKLMNOPQRSTUVWXYZ" {
+            XCTAssertTrue(provider.covers(character), "大写「\(character)」应已由 E1d 补上")
+        }
+        for character in "0123456789" {
+            XCTAssertTrue(provider.covers(character), "数字「\(character)」应已由 E1d 补上")
         }
     }
 
     func testUncoveredCharacterThrowsTheSpecificReason() {
         // 必须能区分「这个字没覆盖」与「资源坏了」，两者的处置完全不同。
-        XCTAssertThrowsError(try provider.strokes(for: "，")) { error in
-            XCTAssertEqual(error as? GlyphStrokeLookupFailure, .characterNotCovered("，"))
+        // 用希腊字母当例子：汉字、标点、拉丁字母与数字都已覆盖，它确实不在其中。
+        XCTAssertThrowsError(try provider.strokes(for: "α")) { error in
+            XCTAssertEqual(error as? GlyphStrokeLookupFailure, .characterNotCovered("α"))
         }
     }
 
@@ -182,12 +198,14 @@ nonisolated final class GlyphStrokeTests: XCTestCase {
     /// 让「少了一个字」看起来像「排版错乱」。
     func testUncoveredCharacterIsReportedAndKeepsItsSlot() throws {
         let configuration = makeLayoutConfiguration(glyphSize: 40, lineWidth: 4_000)
-        let laidOut = try GlyphStrokeLayout().layOut("一，一", configuration: configuration)
+        // 用希腊字母当缺字：汉字、标点、拉丁字母与数字都已覆盖（E1c/E1d）。
+        let laidOut = try GlyphStrokeLayout().layOut("一α一", configuration: configuration)
 
-        XCTAssertEqual(laidOut.uncoveredCharacters, ["，"])
+        XCTAssertEqual(laidOut.uncoveredCharacters, ["α"])
         XCTAssertEqual(laidOut.polylines.count, 2, "缺字不该产出笔画")
 
-        // 两个「一」之间空出了逗号的位置：相隔两个字面方格而不是一个。
+        // 两个「一」之间空出了缺字的位置：相隔两个字面方格而不是一个。
+        // 宽度未知的字按一整格占位。
         let gap = laidOut.polylines[1].points[0].x - laidOut.polylines[0].points[0].x
         XCTAssertEqual(gap, configuration.glyphSize * 2, accuracy: 1e-9, "缺字应留出它的位置")
     }

@@ -77,8 +77,28 @@ nonisolated struct HumanizerConfiguration: Equatable, Sendable {
     var minimumPressure: Double
     var maximumPressure: Double
 
+    /// 压感起伏的波长（单位：页面点，**尺度相关**）。
+    /// 从一个力度极值走到下一个极值要走多长墨迹。它比手抖的波长长得多：
+    /// 手抖是 10 Hz 的震颤，而「按得多重」跟的是手臂用力，一秒变不了十次。
+    var pressureWavelength: Double
+
+    /// 转折处的压感加成（无量纲）。原路折回（180°）时压感增加这么多，
+    /// 笔直处不加。急转时笔尖停留更久、墨渗得更多，所以更粗。
+    var curvaturePressureGain: Double
+
     /// 起笔/收笔渐细占整笔的比例，用于模拟落笔变重、收笔提起。
     var taperFraction: Double
+
+    /// 抬笔在空中移动时，速度是落墨速度的几倍（计划 A4）。
+    ///
+    /// 为什么用倍数而不是直接写一个空中速度：空中速度和落墨速度是同一件事的两面
+    /// （同一只手在动），写成倍数就只有一个物理关系，改书写速度时它自动跟着变，
+    /// 不会出现两个数打架。笔在空中比在纸上快，因为它不需要沿途描出形状。
+    var airSpeedMultiple: Double
+
+    /// 抬笔离纸与落笔触纸的固定耗时（秒），与移动距离无关。
+    /// 绝对时间：这段耗时来自手腕的动作，不随字号变化。
+    var penLiftDuration: TimeInterval
 }
 
 nonisolated struct StrokeHumanizer: Sendable {
@@ -99,11 +119,61 @@ nonisolated struct StrokeHumanizer: Sendable {
     ) -> StrokeSequence {
         validate(configuration)
         var random = SeededRandomNumberGenerator(seed: seed)
-        // 空笔画（点数不足）直接丢弃，而不是产出零采样的笔，避免渲染层反复判空。
-        let strokes = polylines.compactMap { polyline in
-            humanize(polyline, configuration: configuration, random: &random)
+
+        var strokes: [TimedStroke] = []
+        strokes.reserveCapacity(polylines.count)
+        // 上一笔的收笔位置。用来算下一笔的抬笔移动距离（计划 A4）。
+        // nil 表示还没有前一笔，也就是这是第一笔，没有抬笔移动。
+        var previousEnd: Point2D?
+
+        for polyline in polylines {
+            // 空笔画（点数不足）直接丢弃，而不是产出零采样的笔，避免渲染层反复判空。
+            guard var stroke = humanize(polyline, configuration: configuration, random: &random),
+                  let start = stroke.samples.first?.point
+            else { continue }
+
+            if let previousEnd {
+                stroke = TimedStroke(
+                    samples: stroke.samples,
+                    duration: stroke.duration,
+                    pauseBefore: penTravelDuration(
+                        from: previousEnd,
+                        to: start,
+                        configuration: configuration,
+                        random: &random
+                    )
+                )
+            }
+
+            previousEnd = stroke.samples.last?.point
+            strokes.append(stroke)
         }
+
         return StrokeSequence(strokes: strokes)
+    }
+
+    /// 笔从上一笔的收笔处抬起、移到下一笔起点、再落下所花的时间（计划 A4）。
+    ///
+    /// 由**距离**推出而不是拍一个固定秒数：同一个字里相邻两笔往往挨得很近，
+    /// 而换到下一个字要跨过整个字宽，两者的间隔本来就该不一样。
+    /// 固定秒数会让紧挨着的两笔之间出现莫名的停顿，也让跨字的跳跃显得太急。
+    private func penTravelDuration(
+        from origin: Point2D,
+        to destination: Point2D,
+        configuration: HumanizerConfiguration,
+        random: inout SeededRandomNumberGenerator
+    ) -> TimeInterval {
+        let distance = origin.distance(to: destination)
+        let airSpeed = configuration.inkLengthPerSecond * configuration.airSpeedMultiple
+        let travel = configuration.penLiftDuration + distance / airSpeed
+
+        // 复用笔画时长的那份浮动比例，不为「停顿也要有随机性」再引入一个参数——
+        // 它们描述的是同一件事：人的动作在时间上不完全一致。
+        let noise = max(
+            Self.minimumTimingNoiseFactor,
+            1 + random.gaussian() * configuration.durationVariation
+        )
+        return travel * noise
     }
 
     private func humanize(
@@ -123,14 +193,32 @@ nonisolated struct StrokeHumanizer: Sendable {
             random: &random
         )
 
+        // 压感的两个来源都必须整笔一起算，理由和抖动一样：它们沿笔画是连续的。
+        // 在逐点循环里现抽随机数得到的是白噪声，线看起来像串珠（计划 A2 修的就是这个）。
+        let pressureNoise = smoothPressureNoise(
+            of: points,
+            wavelength: configuration.pressureWavelength,
+            random: &random
+        )
+        // 曲率在**摆动之前**的点上量：笔慢下来是因为字形本身在转弯，
+        // 而不是因为手抖出来的那点弯曲。
+        let turns = turnFractions(of: points)
+
         let samples = wobbled.enumerated().map { index, point in
             let progress = wobbled.count == 1 ? 0.5 : Double(index) / Double(wobbled.count - 1)
 
             // 压感 = 受限的主体压力 × 起收笔渐细包络。
             // 先夹紧再乘包络，避免噪声把压感推到负值或超过上限。
-            let pressureNoise = random.gaussian() * configuration.pressureVariation
+            //
+            // 主体压力由三部分组成：
+            // 一、基准压力；
+            // 二、沿笔画缓慢起伏的噪声（人的力度不是恒定的，但也不会逐点乱跳）；
+            // 三、转折加成——急转处笔尖停留更久、墨渗得更多，所以更粗。
+            //    这是钢笔与毛笔写字时看得见的效果，也是拐角显得有力的原因。
             let bodyPressure = clamp(
-                configuration.basePressure + pressureNoise,
+                configuration.basePressure
+                    + pressureNoise[index] * configuration.pressureVariation
+                    + turns[index] * configuration.curvaturePressureGain,
                 lower: configuration.minimumPressure,
                 upper: configuration.maximumPressure
             )
@@ -164,6 +252,32 @@ nonisolated struct StrokeHumanizer: Sendable {
         return TimedStroke(samples: samples, duration: duration)
     }
 
+    /// 沿笔画缓慢起伏的压感噪声（计划 A2）。
+    ///
+    /// 与抖动共用同一套平滑噪声，只是波长长得多：手抖是 10 Hz 的震颤，
+    /// 而「按得多重」跟的是手臂的用力，一秒变不了十次。
+    /// 首尾不钉 0——起收笔的压感已经由渐细包络压到最低值，不需要再钉一次。
+    private func smoothPressureNoise(
+        of points: [Point2D],
+        wavelength: Double,
+        random: inout SeededRandomNumberGenerator
+    ) -> [Double] {
+        let cumulative = arcLengths(of: points)
+        guard let totalLength = cumulative.last, totalLength > 0 else {
+            // 单点或零长笔画没有弧长可依，给一个不起伏的常量噪声。
+            // 不消耗随机数，保证「同一输入同一种子结果一致」这条不被打破。
+            return Array(repeating: 0, count: points.count)
+        }
+
+        return smoothNoise(
+            at: cumulative,
+            totalLength: totalLength,
+            wavelength: wavelength,
+            pinEnds: false,
+            random: &random
+        )
+    }
+
     /// 让一笔沿法线方向缓慢摆动，模拟手抖（计划 A1）。
     ///
     /// - Parameters:
@@ -184,32 +298,88 @@ nonisolated struct StrokeHumanizer: Sendable {
         let cumulative = arcLengths(of: points)
         guard let totalLength = cumulative.last, totalLength > 0 else { return points }
 
-        // 控制点按波长铺满整笔。用 `totalLength / intervalCount` 而不是直接用波长，
-        // 是为了让最后一个控制点正好落在笔尾——否则末尾会剩下不完整的一段，
-        // 收笔处的偏移就不是 0，端点不动这条规则会被破坏。
-        let intervalCount = max(1, Int((totalLength / wavelength).rounded()))
-        let controlSpacing = totalLength / Double(intervalCount)
-
-        // 首尾控制值留 0：噪声从零起、回到零收，与固定端点平滑接合。
-        // 只有中间的控制点消耗随机数，所以短到一个波长以内的笔画完全不抖——
-        // 这是对的：笔尖还没走够半个摆动周期，本来就不该看出弯。
-        var controls = [Double](repeating: 0, count: intervalCount + 1)
-        for index in 1 ..< max(1, intervalCount) {
-            controls[index] = random.gaussian()
-        }
+        // 首尾必须归零，噪声才能与「端点不许移动」平滑接合。
+        let noise = smoothNoise(
+            at: cumulative,
+            totalLength: totalLength,
+            wavelength: wavelength,
+            pinEnds: true,
+            random: &random
+        )
 
         return points.enumerated().map { index, point in
             guard let normal = normalDirection(of: points, at: index) else { return point }
+            let offset = noise[index] * amplitude
+            return Point2D(x: point.x + normal.x * offset, y: point.y + normal.y * offset)
+        }
+    }
 
-            let position = cumulative[index] / controlSpacing
+    /// 沿弧长连续变化的噪声（value noise + smoothstep）。
+    ///
+    /// 抖动（A1）与压感（A2）都需要「一段一段缓慢起伏」而不是逐点乱跳，
+    /// 所以这段生成逻辑抽出来共用。两者的区别只是波长不同、以及要不要把首尾钉成 0。
+    ///
+    /// 做法：每隔一个波长取一个正态随机控制值，中间用 smoothstep 插值。
+    /// smoothstep 两端斜率为 0，所以控制点的拼接处不会出现折角。
+    ///
+    /// - Parameters:
+    ///   - cumulative: 每个点的累积弧长（由 `arcLengths(of:)` 给出）。
+    ///   - totalLength: 整笔弧长。
+    ///   - wavelength: 从一个极值到下一个极值的弧长。
+    ///   - pinEnds: 首尾控制值是否钉成 0。抖动必须钉（端点不许移动）；
+    ///     压感不需要钉（起收笔已经由渐细包络压到最低值）。
+    /// - Returns: 与 `cumulative` 等长的噪声值，量级约为标准正态。
+    private func smoothNoise(
+        at cumulative: [Double],
+        totalLength: Double,
+        wavelength: Double,
+        pinEnds: Bool,
+        random: inout SeededRandomNumberGenerator
+    ) -> [Double] {
+        // 控制点按波长铺满整笔。用 `totalLength / intervalCount` 而不是直接用波长，
+        // 是为了让最后一个控制点正好落在笔尾——否则末尾会剩下不完整的一段，
+        // 钉首尾时收笔处的偏移就不是 0，端点不动这条规则会被破坏。
+        let intervalCount = max(1, Int((totalLength / wavelength).rounded()))
+        let controlSpacing = totalLength / Double(intervalCount)
+
+        var controls = [Double](repeating: 0, count: intervalCount + 1)
+        // 钉首尾时只有中间的控制点取随机值，于是短到一个波长以内的笔完全不起伏——
+        // 这是对的：笔尖还没走够半个周期，本来就不该看出变化。
+        let range = pinEnds ? (1 ..< max(1, intervalCount)) : (0 ..< intervalCount + 1)
+        for index in range {
+            controls[index] = random.gaussian()
+        }
+
+        return cumulative.map { distance in
+            let position = distance / controlSpacing
             let lowerIndex = min(intervalCount - 1, max(0, Int(position.rounded(.down))))
             let fraction = min(1, max(0, position - Double(lowerIndex)))
-            // smoothstep：两端斜率为 0，因此拼接处不会出现折角。
             let eased = fraction * fraction * (3 - 2 * fraction)
-            let offset = (controls[lowerIndex] + (controls[lowerIndex + 1] - controls[lowerIndex]) * eased)
-                * amplitude
+            return controls[lowerIndex] + (controls[lowerIndex + 1] - controls[lowerIndex]) * eased
+        }
+    }
 
-            return Point2D(x: point.x + normal.x * offset, y: point.y + normal.y * offset)
+    /// 每个点处的「转折程度」，0 表示笔直，1 表示原路折回（计划 A2）。
+    ///
+    /// 用前后两段的夹角除以 π 归一。因为重采样已经把点铺成等弧长，
+    /// 同样的夹角就代表同样的弯曲程度，这个量与字号无关。
+    /// 首尾点没有前后两段可比，记为 0。
+    private func turnFractions(of points: [Point2D]) -> [Double] {
+        guard points.count > 2 else { return Array(repeating: 0, count: points.count) }
+
+        return points.indices.map { index in
+            guard index > 0, index < points.count - 1 else { return 0 }
+
+            let incoming = (x: points[index].x - points[index - 1].x, y: points[index].y - points[index - 1].y)
+            let outgoing = (x: points[index + 1].x - points[index].x, y: points[index + 1].y - points[index].y)
+
+            let dot = incoming.x * outgoing.x + incoming.y * outgoing.y
+            let cross = incoming.x * outgoing.y - incoming.y * outgoing.x
+            // 用 atan2 而不是 acos(dot/|a||b|)：后者在夹角接近 0 或 π 时精度很差，
+            // 而且要先算两个模长再相除，多一次可能除零。
+            let angle = abs(atan2(cross, dot))
+            guard angle.isFinite else { return 0 }
+            return min(1, angle / .pi)
         }
     }
 
@@ -315,6 +485,10 @@ nonisolated struct StrokeHumanizer: Sendable {
         precondition(configuration.minimumPressure >= 0, "Minimum pressure cannot be negative")
         precondition(configuration.maximumPressure >= configuration.minimumPressure, "Pressure bounds are invalid")
         precondition((0 ... 0.5).contains(configuration.taperFraction), "Taper fraction must be between 0 and 0.5")
+        precondition(configuration.airSpeedMultiple > 0, "Air speed multiple must be positive")
+        precondition(configuration.pressureWavelength > 0, "Pressure wavelength must be positive")
+        precondition(configuration.curvaturePressureGain >= 0, "Curvature pressure gain cannot be negative")
+        precondition(configuration.penLiftDuration >= 0, "Pen lift duration cannot be negative")
     }
 }
 
