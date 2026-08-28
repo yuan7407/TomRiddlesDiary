@@ -45,6 +45,22 @@ nonisolated enum PageAppearance {
         min(size.width, size.height) * pageMarginRatio
     }
 
+    /// 用户手写用的笔尖粗细（毫米）。
+    ///
+    /// 为什么用绝对毫米而不是字高的比例：这是用户手里那支笔的粗细，
+    /// 用户想写多大就写多大，笔不会跟着变粗。这与「魂的墨宽按字高比例算」
+    /// 是刻意不同的两个选择——魂的字是排版排出来的，字号由我们决定；
+    /// 用户的字是手写的，字号由用户决定。
+    ///
+    /// 0.5 mm 对应常见中性笔。数值只是量级推算，**真机手写观感待复核**：
+    /// 要看的是它与魂的回应粗细是否相称——魂应该像用同一支笔写的。
+    static let userInkWidthInMillimeters: Double = 0.5
+
+    /// 用户笔尖粗细换算成视图点。
+    static var userInkWidth: Double {
+        PageMetrics.points(fromMillimeters: userInkWidthInMillimeters)
+    }
+
     /// 把 0…1 的压感换算成墨线宽度（视图点）。
     /// - Parameters:
     ///   - pressure: 0…1 的压感。超出范围时夹紧，避免异常数据画出负宽度。

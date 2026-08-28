@@ -51,14 +51,14 @@ scripts/                  仓库工具：提交门禁（不属于 App，不会�
 | 项 | 状态 |
 |---|---|
 | Xcode / Simulator | ✅ iPadOS 27、仅 iPad、无签名 Simulator build 通过（需 Xcode 27） |
-| 笔画引擎 | ✅ 手绘化 + 压感 + 严格串行逐笔重播，54 个 XCTest 全通过 |
+| 笔画引擎 | ✅ 手绘化 + 压感 + 严格串行逐笔重播，64 个 XCTest 全通过 |
 | 单位契约 | ✅ 参数有物理含义，换字号自动同比例缩放，由测试守住 |
 | 回应渲染层 | ✅ 可用（`HandwritingReplayView`），但目前没有调用方 |
 | 手写识别 | ⬜ PencilKit 内建识别官方支持中文，但模拟器缺中文模型，只能真机验证 |
 | 首屏 | ✅ 一段示例回应会用手写体逐字写在纸上（E8 脚手架，非最终效果） |
 | 排版层 | ✅ CoreText 断行，中英混排，字位置可断言 |
 | 手写体字体 | ✅ 寒蝉手拙体 v2.500 已打包（3.9 MB OTF） |
-| 笔画输入源 | ❌ 无。引擎只吃 `[Polyline]`，而 PencilKit 与字形笔画都还没接 |
+| 笔画输入源 | ✅ PencilKit 手写 → `[Polyline]`（`PencilStrokeReader`）。引擎第一次有真实输入 |
 | 手写识别 / 字形笔画 / 排版 / Oracle / 后端 / 存储 | ❌ 尚未接入 |
 
 已删除且不再回溯的路线：位图抽骨架（Skeletonizer + StrokeTracer，实机线条质量差，见 Git `e08f4c3`）、Magic Stroke Lab 诊断界面与离线夹具、图像生成与图像回应。
@@ -87,7 +87,7 @@ xcodebuild -project TomRiddlesDiary.xcodeproj -scheme TomRiddlesDiary \
 bash scripts/ip_firewall_check.sh
 ```
 
-预期 `54 tests, 0 failures` 与 `** BUILD SUCCEEDED **`。构建有一条非阻塞提示（未依赖 AppIntents，跳过其 metadata），属预期。门禁会报若干占位品牌名的 ⚠，在白名单内，属预期。
+预期 `64 tests, 0 failures` 与 `** BUILD SUCCEEDED **`。构建有一条非阻塞提示（未依赖 AppIntents，跳过其 metadata），属预期。门禁会报若干占位品牌名的 ⚠，在白名单内，属预期。
 
 Simulator 能跑不等于体验通过：压感、书写节奏与手写识别准确率都必须 iPad 真机 + Apple Pencil 主观评审。
 
@@ -148,7 +148,11 @@ Simulator 能跑不等于体验通过：压感、书写节奏与手写识别准�
 |---|---|
 | E1 | **字形笔顺资产**（输出侧第二阶段，真正的逐笔生长）：文字 → 笔画中线。含数据集覆盖不到的标点、数字、拉丁字母。做完后取代 E8 的字体渲染 |
 | E2 | ✅ 排版层完成（2026-08-27）：`Handwriting/TextLayout` 用 CoreText 断行与定位，输出每个字的页面位置与字宽。E8 与 E1 共用这一层。仍待做：字与字的自然不齐（大小起伏、基线抖动），属手写感范畴 |
-| E3 | PencilKit 画布：手写捕获、成页触发、落笔中断接管、魂的笔画落定进 `PKDrawing`（用户可擦）。**PencilKit 本身 iOS 13 起就有，不需要等 Xcode 27**，只有识别要等 |
+| E3 | 拆成四小步。**PencilKit 本身 iOS 13 起就有，不需要等 Xcode 27**，只有识别要等 |
+| E3a（画布） | ✅ 2026-08-28。`HandwritingCanvas` 嵌入 `PKCanvasView`，与回应层共用纸色和页面坐标系；关掉滚动缩放（一页就是一页） |
+| E3b（读笔画） | ✅ 2026-08-28。`PencilStrokeReader` 把 `PKDrawing` 读成 `[Polyline]`，用 `.distance` 等距采样；力度如实报告有无，不编造压感 |
+| E3c（成页触发） | ⬜ 长停顿 + 终止标点加速 + 可撤销预告 + Pencil 悬停。**阈值必须先用真实书写数据量出**，不能拍数字 |
+| E3d（落笔中断） | ⬜ 用户新落笔即中断接管重播，半截字留在页上 |
 | E4 | 手写识别接入。拉丁字母可在模拟器跑通；**中文可用性与准确率必须真机验证**（iPad 装 iPadOS 27 + Apple Pencil，中英混写样张） |
 | E5 | 端侧提取字迹指标 |
 | E6 | `OracleProvider` 协议 + Mock，离线打通完整闭环；失败只做诚实硬提示，绝不返回 Mock 冒充成功 |
@@ -162,8 +166,8 @@ Simulator 能跑不等于体验通过：压感、书写节奏与手写识别准�
 | F1 | ✅ Xcode 27.0 beta 已装（2026-08-27，`Xcode-beta.app`，与 26.6 并存） |
 | F2 | ✅ 最低系统 iPadOS 27.0（2026-08-27）。构建必须用 Xcode 27，见「运行与验证」 |
 | F3 | ✅ **通过：PencilKit 手写识别官方支持中文**（简体、繁体、粤语，另有日韩阿俄等共 29 种，见 [WWDC 2026 session 203](https://developer.apple.com/videos/play/wwdc2026/203/?time=205)）。**但模拟器上验证不了**——详见「关于手写识别的模拟器限制」 |
-| F4 | 升 Swift 6 语言模式 |
-| F5 | 门禁加 import 白名单，保护 `StrokeEngine` 只依赖 Foundation |
+| F4 | ✅ 升 Swift 6 语言模式（2026-08-28）。App 代码零错误，测试目标三处隔离标注修正 |
+| F5 | ✅ 门禁加纯逻辑层 import 白名单（2026-08-28）。`StrokeEngine` 只许 Foundation，`Handwriting` 只许 Foundation/CoreGraphics/CoreText；已反向验证会红字失败 |
 | F6 | ✅ AGENTS.md 补硬编码规则与 `Handwriting` 模块（2026-08-26 完成） |
 | F7 | ✅ 合并进 `main`（2026-08-27，`d5641c8`）。此前 main 停在最初的工程集成提交，落后 10 个 |
 | F8 | `Package.resolved` 被 gitignore 与「依赖必须锁定版本」规则冲突 |
