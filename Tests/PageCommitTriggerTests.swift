@@ -176,7 +176,7 @@ nonisolated final class PageCommitTriggerTests: XCTestCase {
             .keepWaiting
         )
 
-        guard case .aboutToCommit(let remaining, let imminence) = trigger.decide(
+        guard case .aboutToCommit(let remaining) = trigger.decide(
             sinceLastLift: 4,
             rhythm: pace,
             endsWithTerminalPunctuation: false,
@@ -185,8 +185,6 @@ nonisolated final class PageCommitTriggerTests: XCTestCase {
             return XCTFail("等到 4 秒时应该进入预告期")
         }
         XCTAssertEqual(remaining, 1, accuracy: 0.001)
-        // 预告期 2.5 秒，还剩 1 秒 → 走过了 60%。
-        XCTAssertEqual(imminence, 0.6, accuracy: 0.001)
 
         XCTAssertEqual(
             trigger.decide(
@@ -199,29 +197,27 @@ nonisolated final class PageCommitTriggerTests: XCTestCase {
         )
     }
 
-    /// 预告的浓度必须从 0 长到 1，否则渗墨会一出现就是全尺寸（跟 A7 的墨点同一类毛病）。
-    func testImminenceRunsFromZeroToOneAcrossTheHintWindow() {
-        let pace = rhythm(pauses: [1, 1, 1]) // 阈值 5 秒，预告期从第 2.5 秒开始
+    /// 预告期必须正好覆盖等待期的最后 `hintFraction`，一秒不差。
+    /// 早了提示会一直亮着失去意义，晚了来不及取消。
+    func testHintWindowCoversExactlyTheTailOfTheWait() {
+        let pace = rhythm(pauses: [1, 1, 1]) // 阈值 5 秒，预告期是最后 2.5 秒
 
-        guard case .aboutToCommit(_, let atStart) = trigger.decide(
-            sinceLastLift: 2.5,
-            rhythm: pace,
-            endsWithTerminalPunctuation: false,
-            isPencilHovering: false
-        ) else {
-            return XCTFail("2.5 秒正好是预告期的起点")
+        func decision(at elapsed: TimeInterval) -> PageCommitDecision {
+            trigger.decide(
+                sinceLastLift: elapsed,
+                rhythm: pace,
+                endsWithTerminalPunctuation: false,
+                isPencilHovering: false
+            )
         }
-        guard case .aboutToCommit(_, let atEnd) = trigger.decide(
-            sinceLastLift: 4.999,
-            rhythm: pace,
-            endsWithTerminalPunctuation: false,
-            isPencilHovering: false
-        ) else {
+
+        XCTAssertEqual(decision(at: 2.49), .keepWaiting, "还差一点才进预告期")
+        XCTAssertEqual(decision(at: 2.5), .aboutToCommit(remaining: 2.5), "2.5 秒正好是起点")
+
+        guard case .aboutToCommit(let last) = decision(at: 4.999) else {
             return XCTFail("成页前的最后一刻仍在预告期")
         }
-
-        XCTAssertEqual(atStart, 0, accuracy: 0.001)
-        XCTAssertGreaterThan(atEnd, 0.99)
+        XCTAssertEqual(last, 0.001, accuracy: 0.0005)
     }
 
     /// 时钟异常给出的非有限值不能被当成「等了无限久」而凭空触发一次回应。

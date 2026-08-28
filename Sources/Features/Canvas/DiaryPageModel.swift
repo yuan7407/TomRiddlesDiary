@@ -12,6 +12,26 @@
 //  读到的可能不是最新的状态，这类问题不会报错、只会偶发地判断错。
 //  用一个引用类型持有这些状态，循环读到的一定是当前值。
 //
+//  ── 2026-08-29 修的一个自己造的 bug：用户写的笔画写完就从纸上消失 ──
+//
+//  症状：写完一笔，墨迹消失。但笔画数据全在（读数显示笔数 6、采样点 353，
+//  识别也认出了 `hell`），纸的底色也还在——也就是说 PencilKit 的数据和视图都是好的，
+//  只有已画的墨没被重绘出来。
+//
+//  原因：倒计时循环每 0.1 秒往 `phase` 写一次值，**而且值没变也写**
+//  （`.waiting` → `.waiting`），再加上原先 `.aboutToRespond` 还带着每帧都在变的
+//  「还剩几秒」。`@Observable` 不比较新旧值，于是从抬笔那一刻起界面每秒重建十次，
+//  一直到成页。PencilKit 的墨迹层被反复标记为需要重绘，而模拟器空闲时会冻结
+//  渲染循环（见 `MEMORY.md` 已知陷阱），重绘一直没发生，墨就没了。
+//
+//  两处改法：一、阶段只在真的变化时才发布（`setPhase`）；
+//  二、阶段不再携带高频变化的数据。改完一次等待期只发布四次（等待 → 预告 →
+//  读懂 → 已收下），而不是几十次。
+//
+//  `phaseUpdateCount` 是为这件事加的**临时**计数器，只在 DEBUG 读数里显示：
+//  如果改完墨还是消失、而计数很低，就说明上面这个推断是错的，得换方向查。
+//  确认修好后删掉它。
+//
 //  已知的产品问题（不在本步解决，别当成已解决）：
 //  一、成页时识别的是**整页**，也就是包含之前已经收下过的内容。真实产品里
 //  魂不该把旧内容再读一遍。怎么切分「这一轮写的」取决于版式决定（用户在哪写、
@@ -37,7 +57,11 @@ nonisolated enum DiaryPagePhase: Equatable, Sendable {
     case waiting
 
     /// 预告期：马上要成页了。此刻再写一笔即可取消（决策 17 要求猜错零代价可救）。
-    case aboutToRespond(remaining: TimeInterval, imminence: Double)
+    ///
+    /// **刻意不带「还剩几秒」这种每帧都在变的数据。** 原先它带了，结果每 0.1 秒
+    /// 就发布一次新值，界面每秒重建十次——这正是 2026-08-29 那个「笔画写完就消失」
+    /// 的头号嫌疑（详见 `DiaryPageModel` 文件头）。阶段就该是粗粒度的。
+    case aboutToRespond
 
     /// 已成页，正在读懂这一页写了什么（识别在跑）。
     case understanding
@@ -71,6 +95,10 @@ final class DiaryPageModel {
     private(set) var recognition: HandwritingRecognition?
 
     private(set) var phase: DiaryPagePhase = .blank
+
+    /// 阶段实际发布过多少次。**临时诊断用**，只给 DEBUG 读数看，确认笔画不再消失后删除。
+    /// 一次「写字 → 等待 → 成页」应该只有个位数；如果又变成几十次，说明高频发布回来了。
+    private(set) var phaseUpdateCount = 0
 
     /// 魂那段回应。E6 之前恒为 nil。
     private(set) var reply: ReplyOnPage?
@@ -121,7 +149,7 @@ final class DiaryPageModel {
         countdown?.cancel()
         countdown = nil
         lastLift = nil
-        phase = .writing
+        setPhase(.writing)
 
         // E3d：新落笔立刻接管，重播停在当前进度，半截字留在页上（决策 14）。
         if let current = reply {
@@ -142,7 +170,7 @@ final class DiaryPageModel {
 
         guard reading?.isEmpty == false else {
             // 一笔都没有（例如用橡皮擦干净了）。没有内容就没有什么可回应的。
-            phase = .blank
+            setPhase(.blank)
             lastLift = nil
             countdown?.cancel()
             countdown = nil
@@ -150,7 +178,7 @@ final class DiaryPageModel {
         }
 
         lastLift = .now
-        phase = .waiting
+        setPhase(.waiting)
         startRecognition(of: drawing)
         startCountdown()
     }
@@ -170,6 +198,19 @@ final class DiaryPageModel {
     }
 
     // MARK: 内部
+
+    /// 只在阶段真的变化时才发布。
+    ///
+    /// `@Observable` 不比较新旧值：把同一个值再写一遍，观察者照样收到变更通知，
+    /// 界面照样重建一次。倒计时每 0.1 秒判断一次，其中绝大多数次结论都没变，
+    /// 所以少了这道闸门就是每秒十次无意义的界面重建——2026-08-29 的笔画消失
+    /// 就是这么来的。
+    private func setPhase(_ next: DiaryPagePhase) {
+        guard phase != next else { return }
+        phase = next
+        phaseUpdateCount += 1
+    }
+
 
     /// 等待期的识别。它的产出有两个用途：喂终止标点加速信号，以及让开发期读数
     /// 能立刻看到认出了什么。上一次没跑完就取消，避免识别任务越积越多。
@@ -202,9 +243,9 @@ final class DiaryPageModel {
 
                 switch decision {
                 case .keepWaiting:
-                    self.phase = .waiting
-                case .aboutToCommit(let remaining, let imminence):
-                    self.phase = .aboutToRespond(remaining: remaining, imminence: imminence)
+                    self.setPhase(.waiting)
+                case .aboutToCommit:
+                    self.setPhase(.aboutToRespond)
                 case .commit:
                     await self.commit()
                     return
@@ -227,13 +268,13 @@ final class DiaryPageModel {
     private func commit() async {
         guard let drawing = lastDrawing else { return }
 
-        phase = .understanding
+        setPhase(.understanding)
         recognitionTask?.cancel()
         recognition = await recognizer.recognize(drawing)
 
         // 下一步（计划 E6）：把认出来的文字交给 Oracle，拿回应，
         // 用 `GlyphStrokeLayout` 排成笔画，装进 `reply` 开始逐笔写。
         // 现在没有 Oracle，所以到这里就结束了——阶段名字如实说明这一点。
-        phase = .awaitingSoul
+        setPhase(.awaitingSoul)
     }
 }

@@ -179,6 +179,28 @@ nonisolated final class DiaryPageModelTests: XCTestCase {
         await waitUntil("重新等待后成页") { model.phase == .awaitingSoul }
     }
 
+    /// 回归守卫：一整轮等待期只许发布个位数次阶段变化。
+    ///
+    /// 这条是 2026-08-29「用户笔画写完就消失」那个 bug 的守卫。当时倒计时每 0.1 秒
+    /// 往 `phase` 写一次值、值没变也写，界面每秒重建十次，PencilKit 的墨迹层被反复
+    /// 标记为需要重绘却一直没重绘，墨就没了。数据全在、纸色也在，只有墨看不见——
+    /// 这种症状极难从界面反推原因，所以必须有测试盯着「发布次数」这个可测量的量。
+    @MainActor
+    func testPhaseIsPublishedOnlyWhenItActuallyChanges() async {
+        let model = makeModel()
+
+        model.strokeFinished(makeDrawing())
+        await waitUntil("成页") { model.phase == .awaitingSoul }
+
+        // 一轮的合法变化是：等待 → 预告 → 读懂 → 已收下，也就是 4 次。
+        // 留一点余量，但绝不能是几十次。
+        XCTAssertLessThanOrEqual(
+            model.phaseUpdateCount,
+            6,
+            "等待期内重复发布同一个阶段会让界面每秒重建十次，笔画会从纸上消失"
+        )
+    }
+
     /// 阈值必须由本页节奏算出来，写得慢的人阈值更长。
     /// 这条防的是「模型层没把节奏喂给触发器」——那种情况下阈值会恒为上限，
     /// 界面上完全看不出来。

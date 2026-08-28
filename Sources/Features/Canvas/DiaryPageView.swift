@@ -53,9 +53,11 @@ struct DiaryPageView: View {
                         .allowsHitTesting(false)
                 }
 
-                if case .aboutToRespond(_, let imminence) = model.phase {
-                    commitHint(imminence: imminence, in: geometry.size)
+                #if DEBUG
+                if model.phase == .aboutToRespond {
+                    commitHint(in: geometry.size)
                 }
+                #endif
 
                 if model.phase == .awaitingSoul {
                     soulNotConnectedNotice(in: geometry.size)
@@ -70,17 +72,26 @@ struct DiaryPageView: View {
         .accessibilityLabel("日记页")
     }
 
-    /// 成页预告：等待期的后段，纸上渗出一点墨，越接近成页洇得越开。
-    /// 造型与位置的取舍写在 `PageAppearance.commitHintRadiusRatio`。
-    private func commitHint(imminence: Double, in size: CGSize) -> some View {
-        let diameter = HandwritingFeel.referenceGlyphHeightInPoints
-            * PageAppearance.commitHintRadiusRatio * 2 * imminence
-
-        return Circle()
-            .fill(PageAppearance.ink.opacity(PageAppearance.commitHintOpacity))
-            .frame(width: diameter, height: diameter)
+    /// 成页预告，**仅 DEBUG**。
+    ///
+    /// 为什么从产品面撤下来（2026-08-29 用户实测判断）：
+    /// 原先是页面左上角渗出一团墨，越接近成页洇得越开。用户的反馈是「看上去真的很像个 bug」——
+    /// 一个淡淡的圆点出现在页边距、离你写字的地方半页远、只存在一秒半，
+    /// 看不出是提示，只看得出页面上多了个不该有的东西。
+    ///
+    /// 「可撤销预告」这个需求没有撤销（决策 17 要求猜错零代价可救），只是它的**正确形态
+    /// 取决于版式决定**：提示应该出现在魂即将落笔的地方，也就是你刚写完那句话旁边。
+    /// 版式还没定（见 `MEMORY.md` 待决项），所以现在不猜一个位置糊上去。
+    /// 在那之前 DEBUG 面用一条一眼看得懂的横幅代替，产品面什么都不显示。
+    private func commitHint(in size: CGSize) -> some View {
+        Text("DEBUG · 快要回应了 —— 现在写一笔可以取消")
+            .font(.system(.footnote, design: .monospaced))
+            .foregroundStyle(PageAppearance.paper)
+            .padding(.horizontal, PageAppearance.noticePadding)
+            .padding(.vertical, PageAppearance.noticePadding / 2)
+            .background(PageAppearance.ink.opacity(PageAppearance.debugBannerOpacity))
             .padding(PageAppearance.pageMargin(for: size))
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .allowsHitTesting(false)
             .accessibilityLabel("日记页快要回应了，此刻再写一笔可以取消")
     }
@@ -133,11 +144,13 @@ struct DiaryPageView: View {
                 median, longest, rhythm.totalDuration, rhythm.inkDuration
             ),
             String(
-                format: "成页阈值 %.2fs　悬停 %@　阶段 %@",
+                format: "成页阈值 %.2fs　悬停 %@",
                 model.commitWaitLength,
-                model.isPencilHovering ? "是" : "否（本机硬件不支持）",
-                describe(model.phase)
+                model.isPencilHovering ? "是" : "否（本机硬件不支持）"
             ),
+            // 阶段发布次数是查「笔画消失」的临时诊断（见 `DiaryPageModel` 文件头）。
+            // 一轮书写应该只有个位数；几十次说明高频重建回来了。确认修好后删掉。
+            "阶段 \(describe(model.phase))　阶段发布 \(model.phaseUpdateCount) 次",
         ]
 
         if let recognition = model.recognition {
@@ -162,7 +175,7 @@ struct DiaryPageView: View {
         case .blank: "空白"
         case .writing: "正在写"
         case .waiting: "等你写完"
-        case .aboutToRespond(let remaining, _): String(format: "预告中 还剩 %.1fs", remaining)
+        case .aboutToRespond: "预告中（再写一笔可取消）"
         case .understanding: "正在读懂这一页"
         case .awaitingSoul: "已收下（魂未接入）"
         }
