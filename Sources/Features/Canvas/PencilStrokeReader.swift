@@ -28,6 +28,45 @@ import CoreGraphics
 import Foundation
 import PencilKit
 
+/// 书写节奏：用户是怎么写的，而不是写了什么。
+///
+/// 为什么和几何一起读：两者来自同一份 `PKDrawing`，一次遍历就能都拿到，
+/// 分成两次读同一份数据是重复。
+///
+/// 这些数据有两个明确用途，都不是现在就用：
+/// 一、计划 E3c 的成页触发阈值必须**从真实停顿分布量出来**，不能像原来那个
+/// 「抬笔 2.8 秒」一样拍一个数。要先能测，才能定。
+/// 二、计划 C2 把书写节奏作为情绪信号——写得快还是犹豫，是纯文本拿不到的信息。
+///
+/// 时间来源的局限（诚实记录）：PencilKit 给的是 `Date`（墙上时钟），
+/// 不是单调时钟。若系统在两笔之间校正了时间，算出的停顿就是错的。
+/// 因此这里丢弃负数与非有限的间隔，但**无法**分辨「用户真的停了很久」和
+/// 「时钟跳了」。这是数据源的限制，不是可以修的 bug。
+nonisolated struct WritingRhythm: Equatable, Sendable {
+    /// 笔间停顿（秒）：上一笔抬笔到下一笔落笔之间的时间。
+    /// 长度比笔数少一；单笔或空白时为空。
+    let pauses: [TimeInterval]
+
+    /// 从第一笔落笔到最后一笔抬笔的总时长。
+    let totalDuration: TimeInterval
+
+    /// 全部笔画自身的书写时长之和（不含停顿）。
+    let inkDuration: TimeInterval
+
+    var longestPause: TimeInterval? { pauses.max() }
+
+    /// 停顿的中位数。用中位数而不是平均值：一次长时间发呆会把平均值拉得毫无意义，
+    /// 而我们想知道的是「平常写字时的停顿有多长」。
+    var medianPause: TimeInterval? {
+        guard !pauses.isEmpty else { return nil }
+        let sorted = pauses.sorted()
+        let middle = sorted.count / 2
+        return sorted.count.isMultiple(of: 2)
+            ? (sorted[middle - 1] + sorted[middle]) / 2
+            : sorted[middle]
+    }
+}
+
 /// 从 PencilKit 读出来的一次手写内容。
 nonisolated struct PencilStrokeReading: Equatable, Sendable {
     /// 每一笔的有序坐标，单位是画布坐标（在不缩放不滚动的一页里，等同页面点）。
@@ -43,6 +82,9 @@ nonisolated struct PencilStrokeReading: Equatable, Sendable {
     /// 观测到的 force 范围，用于计划 A10 的校准取样。
     /// 没有任何采样点时为 nil。
     let observedForceRange: ClosedRange<Double>?
+
+    /// 书写节奏。服务于 E3c 的成页阈值与 C2 的情绪信号。
+    let rhythm: WritingRhythm
 
     var isEmpty: Bool { polylines.isEmpty }
 }
@@ -88,8 +130,15 @@ nonisolated struct PencilStrokeReader: Sendable {
             polylines.append(Polyline(points: points))
         }
 
+        let rhythm = readRhythm(drawing)
+
         guard sawAnyPoint else {
-            return PencilStrokeReading(polylines: polylines, hasVaryingForce: false, observedForceRange: nil)
+            return PencilStrokeReading(
+                polylines: polylines,
+                hasVaryingForce: false,
+                observedForceRange: nil,
+                rhythm: rhythm
+            )
         }
 
         let range = minimumForce ... maximumForce
@@ -98,7 +147,54 @@ nonisolated struct PencilStrokeReader: Sendable {
         return PencilStrokeReading(
             polylines: polylines,
             hasVaryingForce: maximumForce > minimumForce,
-            observedForceRange: range
+            observedForceRange: range,
+            rhythm: rhythm
+        )
+    }
+
+    /// 读出书写节奏。
+    ///
+    /// 每一笔的落笔时刻是 `path.creationDate`，抬笔时刻是它加上最后一个控制点的
+    /// `timeOffset`。停顿就是「上一笔抬笔」到「下一笔落笔」的间隔。
+    /// 用控制点而不是插值采样点：`timeOffset` 是原始记录的时间，插值出来的点
+    /// 时间是算出来的。
+    private func readRhythm(_ drawing: PKDrawing) -> WritingRhythm {
+        struct Span {
+            let start: Date
+            let end: Date
+        }
+
+        let spans: [Span] = drawing.strokes.compactMap { stroke in
+            let path = stroke.path
+            guard let lastOffset = path.last?.timeOffset else { return nil }
+            return Span(
+                start: path.creationDate,
+                end: path.creationDate.addingTimeInterval(lastOffset)
+            )
+        }
+        // 按落笔时刻排序：`strokes` 的顺序是绘制顺序，但排序能让计算不依赖这个假设。
+        .sorted { $0.start < $1.start }
+
+        guard let first = spans.first, let last = spans.max(by: { $0.end < $1.end }) else {
+            return WritingRhythm(pauses: [], totalDuration: 0, inkDuration: 0)
+        }
+
+        let pauses = zip(spans, spans.dropFirst()).compactMap { previous, next -> TimeInterval? in
+            let gap = next.start.timeIntervalSince(previous.end)
+            // 丢弃负数与非有限值：那只可能来自时钟跳变或异常数据，不是真实停顿。
+            guard gap.isFinite, gap >= 0 else { return nil }
+            return gap
+        }
+
+        let inkDuration = spans.reduce(into: 0.0) { total, span in
+            let duration = span.end.timeIntervalSince(span.start)
+            total += duration.isFinite && duration > 0 ? duration : 0
+        }
+
+        return WritingRhythm(
+            pauses: pauses,
+            totalDuration: max(0, last.end.timeIntervalSince(first.start)),
+            inkDuration: inkDuration
         )
     }
 }

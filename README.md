@@ -51,10 +51,11 @@ scripts/                  仓库工具：提交门禁（不属于 App，不会�
 | 项 | 状态 |
 |---|---|
 | Xcode / Simulator | ✅ iPadOS 27、仅 iPad、无签名 Simulator build 通过（需 Xcode 27） |
-| 笔画引擎 | ✅ 手绘化 + 压感 + 严格串行逐笔重播，64 个 XCTest 全通过 |
+| 笔画引擎 | ✅ 手绘化 + 压感 + 严格串行逐笔重播，78 个 XCTest 全通过 |
 | 单位契约 | ✅ 参数有物理含义，换字号自动同比例缩放，由测试守住 |
 | 回应渲染层 | ✅ 可用（`HandwritingReplayView`），但目前没有调用方 |
-| 手写识别 | ⬜ PencilKit 内建识别官方支持中文，但模拟器缺中文模型，只能真机验证 |
+| 手写识别 | ⚙️ 已接线（`HandwritingRecognizer`）。英文在模拟器可用；中文需真机（模拟器缺模型） |
+| 书写节奏 | ✅ 笔间停顿可测（`WritingRhythm`），E3c 的阈值将由它量出 |
 | 首屏 | ✅ 一段示例回应会用手写体逐字写在纸上（E8 脚手架，非最终效果） |
 | 排版层 | ✅ CoreText 断行，中英混排，字位置可断言 |
 | 手写体字体 | ✅ 寒蝉手拙体 v2.500 已打包（3.9 MB OTF） |
@@ -87,7 +88,7 @@ xcodebuild -project TomRiddlesDiary.xcodeproj -scheme TomRiddlesDiary \
 bash scripts/ip_firewall_check.sh
 ```
 
-预期 `64 tests, 0 failures` 与 `** BUILD SUCCEEDED **`。构建有一条非阻塞提示（未依赖 AppIntents，跳过其 metadata），属预期。门禁会报若干占位品牌名的 ⚠，在白名单内，属预期。
+预期 `78 tests, 0 failures` 与 `** BUILD SUCCEEDED **`。构建有一条非阻塞提示（未依赖 AppIntents，跳过其 metadata），属预期。门禁会报若干占位品牌名的 ⚠，在白名单内，属预期。
 
 Simulator 能跑不等于体验通过：压感、书写节奏与手写识别准确率都必须 iPad 真机 + Apple Pencil 主观评审。
 
@@ -151,9 +152,9 @@ Simulator 能跑不等于体验通过：压感、书写节奏与手写识别准�
 | E3 | 拆成四小步。**PencilKit 本身 iOS 13 起就有，不需要等 Xcode 27**，只有识别要等 |
 | E3a（画布） | ✅ 2026-08-28。`HandwritingCanvas` 嵌入 `PKCanvasView`，与回应层共用纸色和页面坐标系；关掉滚动缩放（一页就是一页） |
 | E3b（读笔画） | ✅ 2026-08-28。`PencilStrokeReader` 把 `PKDrawing` 读成 `[Polyline]`，用 `.distance` 等距采样；力度如实报告有无，不编造压感 |
-| E3c（成页触发） | ⬜ 长停顿 + 终止标点加速 + 可撤销预告 + Pencil 悬停。**阈值必须先用真实书写数据量出**，不能拍数字 |
+| E3c（成页触发） | ⬜ 长停顿 + 终止标点加速 + 可撤销预告 + Pencil 悬停。测量能力已就绪（`WritingRhythm` 能算出笔间停顿的中位数与最长值），**阈值仍须用真实书写数据量出**，不能拍数字。还需先定版式（用户在哪写、魂在哪回应） |
 | E3d（落笔中断） | ⬜ 用户新落笔即中断接管重播，半截字留在页上 |
-| E4 | 手写识别接入。拉丁字母可在模拟器跑通；**中文可用性与准确率必须真机验证**（iPad 装 iPadOS 27 + Apple Pencil，中英混写样张） |
+| E4 | ⚙️ 识别已接线（2026-08-28）：`HandwritingRecognizer` 包装 `PKStrokeRecognizer`，把「请求的语言」与「本机能用的语言」的差异变成显式数据，不把「缺模型」混成「认不出」。英文可在模拟器跑通；**中文可用性与准确率仍须真机验证**（iPad 装 iPadOS 27 + Apple Pencil，中英混写样张） |
 | E5 | 端侧提取字迹指标 |
 | E6 | `OracleProvider` 协议 + Mock，离线打通完整闭环；失败只做诚实硬提示，绝不返回 Mock 冒充成功 |
 | E7 | 魔法生死评审：手写文字回应的 Go/Kill 判断（原 12 步计划第 8 步，对象由图像换成文字，评审本身保留）。**必须在 E1 之后**——E8 的字体版本无法逐笔生长，不能用它判生死 |

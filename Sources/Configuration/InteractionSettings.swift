@@ -24,4 +24,17 @@ nonisolated enum InteractionSettings {
     /// 画出一道）。若最终决定只认 Apple Pencil，按 AGENTS.md 必须明确告知
     /// 「这一页需要用 Apple Pencil 书写」，不能让用户对着毫无反应的纸猜。
     static let drawingPolicy: PKCanvasViewDrawingPolicy = .anyInput
+
+    /// 请求识别的语言，按优先顺序。
+    ///
+    /// 中文在前是产品方向（首版中文优先），英文在后是为了中英混写。
+    /// 系统只会启用**本机装了模型**的语言，装不了的那些必须如实告知，不得当作
+    /// 识别失败或悄悄换成别的语言——见 `HandwritingRecognizer` 的说明。
+    ///
+    /// 已实测：iOS 27.0 beta 6 的模拟器只装了拉丁字母模型，请求中文会得到空列表；
+    /// 中文模型是按需下载的系统资产，模拟器不带且不会触发下载。中文可用性只能真机验。
+    static let recognitionLanguages: [Locale.Language] = [
+        Locale.Language(identifier: "zh-Hans"),
+        Locale.Language(identifier: "en"),
+    ]
 }

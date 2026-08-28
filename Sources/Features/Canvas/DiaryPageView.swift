@@ -35,8 +35,10 @@ import SwiftUI
 
 struct DiaryPageView: View {
     @State private var reading: PencilStrokeReading?
+    @State private var recognition: HandwritingRecognition?
 
     private let reader = PencilStrokeReader()
+    private let recognizer = HandwritingRecognizer()
 
     var body: some View {
         GeometryReader { geometry in
@@ -44,6 +46,10 @@ struct DiaryPageView: View {
                 // 画布自带纸色，因此它就是这一页的纸。
                 HandwritingCanvas { drawing in
                     reading = reader.read(drawing)
+                    // 每写完一笔就重认一次整页。这在真实产品里太频繁——
+                    // 识别应该由成页触发（计划 E3c）来驱动。现在这样是为了能
+                    // 立刻看到识别结果，接 E3c 时改掉。
+                    Task { recognition = await recognizer.recognize(drawing) }
                 }
 
                 #if DEBUG
@@ -60,21 +66,53 @@ struct DiaryPageView: View {
     @ViewBuilder
     private func strokeReadout(in size: CGSize) -> some View {
         if let reading {
-            let force = reading.observedForceRange.map {
-                String(format: "%.3f…%.3f", $0.lowerBound, $0.upperBound)
-            } ?? "无"
-            let samples = reading.polylines.reduce(0) { $0 + $1.points.count }
-            Text("""
-            DEBUG 笔画读数
-            笔数 \(reading.polylines.count)　采样点 \(samples)
-            力度范围 \(force)　有效压感 \(reading.hasVaryingForce ? "是" : "否")
-            """)
-            .font(.system(.caption2, design: .monospaced))
-            .foregroundStyle(PageAppearance.ink.opacity(0.55))
-            .padding(PageAppearance.pageMargin(for: size))
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
-            .allowsHitTesting(false)
+            Text(readoutText(reading))
+                .font(.system(.caption2, design: .monospaced))
+                .foregroundStyle(PageAppearance.ink.opacity(0.55))
+                .padding(PageAppearance.pageMargin(for: size))
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+                .allowsHitTesting(false)
         }
+    }
+
+    private func readoutText(_ reading: PencilStrokeReading) -> String {
+        let force = reading.observedForceRange.map {
+            String(format: "%.3f…%.3f", $0.lowerBound, $0.upperBound)
+        } ?? "无"
+        let samples = reading.polylines.reduce(0) { $0 + $1.points.count }
+        let rhythm = reading.rhythm
+        let median = rhythm.medianPause.map { String(format: "%.2f", $0) } ?? "—"
+        let longest = rhythm.longestPause.map { String(format: "%.2f", $0) } ?? "—"
+
+        var lines = [
+            "DEBUG 读数",
+            "笔数 \(reading.polylines.count)　采样点 \(samples)",
+            "力度 \(force)　有效压感 \(reading.hasVaryingForce ? "是" : "否")",
+            String(
+                format: "停顿 中位 %@s 最长 %@s　书写 %.1fs 落墨 %.1fs",
+                median, longest, rhythm.totalDuration, rhythm.inkDuration
+            ),
+        ]
+
+        if let recognition {
+            let availability = recognition.availability
+            lines.append("识别语言 可用[\(describe(availability.active))]　缺失[\(describe(availability.unavailable))]")
+            if !availability.isUsable {
+                lines.append("识别不可用：本机没有任何请求语言的模型")
+            } else if let text = recognition.text, recognition.hasText {
+                lines.append("认出：\(text.replacingOccurrences(of: "\n", with: "⏎"))")
+            } else {
+                lines.append("认出：（无）——有可用语言但没认出内容")
+            }
+        } else {
+            lines.append("识别中…")
+        }
+
+        return lines.joined(separator: "\n")
+    }
+
+    private func describe(_ languages: [Locale.Language]) -> String {
+        languages.isEmpty ? "—" : languages.map(\.minimalIdentifier).joined(separator: ",")
     }
 }
 
