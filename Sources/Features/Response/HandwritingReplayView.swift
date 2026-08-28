@@ -28,8 +28,13 @@
 //  进度。单调时钟不会倒退也不会跳。
 //  已知行为：App 退到后台时 TimelineView 停止出帧，而单调时钟继续走，
 //  所以切回来时会直接看到画完的状态，而不是从中断处接着画。这在当前阶段是可接受
-//  的——回应本来就是在你不看的时候写完的。要不要改成「回来后接着写」是产品决定，
-//  留到接入真实画布时（计划 E3）连同打断行为一起定。
+//  的——回应本来就是在你不看的时候写完的。要不要改成「回来后接着写」是产品决定。
+//
+//  播放状态（2026-08-29，计划 E3d）：
+//  入参由 `replayStartedAt: Instant?` 改成 `ReplayPlayback` 三态。原因是打断必须
+//  能表达「停在当时的进度上」——用可选时刻只能表达「在播」和「画完」两种，
+//  打断只能被迫映射成画完，那正好把「你打断了它」这个信息抹掉。
+//  三态的定义与打断规则见 `ReplayPlayback.swift`。
 //
 
 import SwiftUI
@@ -37,27 +42,22 @@ import SwiftUI
 /// 逐笔重播一段已手绘化的回应。
 /// - Parameters:
 ///   - sequence: 已经过 StrokeHumanizer 处理的笔画序列，坐标须为页面坐标系（页面点）。
-///   - replayStartedAt: 起播时刻，取自单调时钟 `ContinuousClock`。
-///     传 nil 表示不在播放，此时直接显示画完的最终状态。
+///   - playback: 此刻的播放状态（在播 / 停在某个进度 / 已写完）。
 struct HandwritingReplayView: View {
     let sequence: StrokeSequence
-    let replayStartedAt: ContinuousClock.Instant?
+    let playback: ReplayPlayback
 
     var body: some View {
         // TimelineView 只用来驱动重绘；具体过了多少秒问单调时钟，不用它给的 Date。
-        TimelineView(.animation(paused: replayStartedAt == nil)) { _ in
+        // 只有在播时才需要连续出帧，停住和写完都是静止画面。
+        TimelineView(.animation(paused: !playback.isPlaying)) { _ in
             Canvas { context, _ in
-                let frame = StrokeReplayTimeline(sequence: sequence).frame(at: elapsedSeconds())
+                let elapsed = playback.elapsedSeconds(totalDuration: sequence.totalDuration)
+                let frame = StrokeReplayTimeline(sequence: sequence).frame(at: elapsed)
                 render(frame: frame, in: &context)
             }
         }
         .accessibilityLabel("日记之魂正在逐笔写下回应")
-    }
-
-    /// 已过秒数。不在播放时返回总时长，也就是显示画完的状态。
-    private func elapsedSeconds() -> TimeInterval {
-        guard let replayStartedAt else { return sequence.totalDuration }
-        return max(0, (ContinuousClock.now - replayStartedAt).inSeconds)
     }
 
     private func render(frame: ReplayFrame, in context: inout GraphicsContext) {

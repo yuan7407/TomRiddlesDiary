@@ -3,14 +3,15 @@
 //  模块：Features/Canvas（用户书写的那张纸）
 //
 //  文件职责：App 的首屏，也是唯一的主界面——一张能写字的纸。
+//  只负责把状态画出来；「这一页现在处于什么阶段」由 `DiaryPageModel` 决定。
 //
 //  取代原 ContentView.swift（2026-08-26）。原文件唯一的作用是把根视图指向
 //  Magic Stroke Lab 诊断界面；Lab 已整体删除，这层空转的中转也一并去掉。
 //
 //  当前真实状态（诚实说明，别对着界面猜）：
-//  你可以在纸上写字，笔画会被读成引擎能用的格式（页脚的 DEBUG 读数就是证据），
-//  但**写完不会有任何回应**。因为成页触发（E3c）、手写识别（E4）和 Oracle（E6）
-//  都还没接。这不是 bug，是当前进度。
+//  你可以在纸上写字；停笔一会儿后纸边会渗出一点墨（成页预告），再写一笔就能取消；
+//  不写就会成页，这一页被读懂。**但读懂之后什么都不会发生**——魂（Oracle）
+//  还没接入（计划 E6）。界面会用一行字如实说出这一点，不假装在思考。
 //
 //  为什么不放一段示例回应在这里：
 //  2026-08-28 之前这里有一段固定示例，进页面就自动逐字写出来。它当初的用途是
@@ -20,36 +21,44 @@
 //  永远不会进入运行的 App。
 //
 //  两层的关系（计划 E3）：
-//  下层是 `HandwritingCanvas`（PencilKit），承接用户手写；上层留给回应。
+//  下层是 `HandwritingCanvas`（PencilKit），承接用户手写；上层是魂的回应。
 //  两层共用同一份纸色与同一个页面坐标系。先做两层叠加而不是把魂的笔画塞进
 //  同一份 PKDrawing，是因为逐笔生长需要每帧精细控制，塞进 PencilKit 的数据里
-//  不好控；等回应写完再「落定」进 PKDrawing（用户就能用橡皮擦掉，决策 18），
-//  那属于计划 E1 之后的事。
+//  不好控；等回应写完再「落定」进 PKDrawing（用户就能用橡皮擦掉，决策 18）。
+//  回应层不接受点击，否则它会挡住下面的纸让人写不了字。
 //
 //  已知的未决产品问题：用户在哪写、魂在哪回应，目前两者共用整页、毫无分隔，
 //  所以会互相压字。这个版式决定待用户拍板（见 `MEMORY.md` 待决项）。
+//  成页预告那团墨的位置也因此是临时的。
 //
 
 import PencilKit
 import SwiftUI
 
 struct DiaryPageView: View {
-    @State private var reading: PencilStrokeReading?
-    @State private var recognition: HandwritingRecognition?
-
-    private let reader = PencilStrokeReader()
-    private let recognizer = HandwritingRecognizer()
+    @State private var model = DiaryPageModel()
 
     var body: some View {
         GeometryReader { geometry in
             ZStack(alignment: .topLeading) {
                 // 画布自带纸色，因此它就是这一页的纸。
-                HandwritingCanvas { drawing in
-                    reading = reader.read(drawing)
-                    // 每写完一笔就重认一次整页。这在真实产品里太频繁——
-                    // 识别应该由成页触发（计划 E3c）来驱动。现在这样是为了能
-                    // 立刻看到识别结果，接 E3c 时改掉。
-                    Task { recognition = await recognizer.recognize(drawing) }
+                HandwritingCanvas(
+                    onStrokeBegan: { model.strokeBegan() },
+                    onStrokeFinished: { model.strokeFinished($0) },
+                    onPencilHoverChanged: { model.hoverChanged($0) }
+                )
+
+                if let reply = model.reply {
+                    HandwritingReplayView(sequence: reply.sequence, playback: reply.playback)
+                        .allowsHitTesting(false)
+                }
+
+                if case .aboutToRespond(_, let imminence) = model.phase {
+                    commitHint(imminence: imminence, in: geometry.size)
+                }
+
+                if model.phase == .awaitingSoul {
+                    soulNotConnectedNotice(in: geometry.size)
                 }
 
                 #if DEBUG
@@ -61,14 +70,45 @@ struct DiaryPageView: View {
         .accessibilityLabel("日记页")
     }
 
-    /// 开发期读数：确认手写真的被读成了引擎能用的笔画。
-    /// 仅 DEBUG，产品面不该有任何这类数字（计划 E3c 接成页触发时删除）。
+    /// 成页预告：等待期的后段，纸上渗出一点墨，越接近成页洇得越开。
+    /// 造型与位置的取舍写在 `PageAppearance.commitHintRadiusRatio`。
+    private func commitHint(imminence: Double, in size: CGSize) -> some View {
+        let diameter = HandwritingFeel.referenceGlyphHeightInPoints
+            * PageAppearance.commitHintRadiusRatio * 2 * imminence
+
+        return Circle()
+            .fill(PageAppearance.ink.opacity(PageAppearance.commitHintOpacity))
+            .frame(width: diameter, height: diameter)
+            .padding(PageAppearance.pageMargin(for: size))
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .allowsHitTesting(false)
+            .accessibilityLabel("日记页快要回应了，此刻再写一笔可以取消")
+    }
+
+    /// 成页之后的诚实提示。
+    ///
+    /// **这是开发期文案，接上 Oracle（计划 E6）后删除。** 留它的理由：
+    /// 成页预告渗出的墨会让人以为接着就有回应，而现在确实什么都不会来。
+    /// 什么都不说会像 bug，编一句世界观内的台词（「我在想…」）则是伪装成功——
+    /// 那正是 AGENTS.md 禁止的静默兜底。所以就说实话。
+    private func soulNotConnectedNotice(in size: CGSize) -> some View {
+        Text("这一页收下了。回应还没接上——魂（Oracle）尚未接入。")
+            .font(.footnote)
+            .foregroundStyle(PageAppearance.ink.opacity(PageAppearance.noticeInkOpacity))
+            .multilineTextAlignment(.center)
+            .padding(PageAppearance.pageMargin(for: size))
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .allowsHitTesting(false)
+    }
+
+    /// 开发期读数：确认手写真的被读成了引擎能用的笔画，以及成页判断在按什么阈值走。
+    /// 仅 DEBUG，产品面不该有任何这类数字。
     @ViewBuilder
     private func strokeReadout(in size: CGSize) -> some View {
-        if let reading {
+        if let reading = model.reading {
             Text(readoutText(reading))
                 .font(.system(.caption2, design: .monospaced))
-                .foregroundStyle(PageAppearance.ink.opacity(0.55))
+                .foregroundStyle(PageAppearance.ink.opacity(PageAppearance.noticeInkOpacity))
                 .padding(PageAppearance.pageMargin(for: size))
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
                 .allowsHitTesting(false)
@@ -92,9 +132,15 @@ struct DiaryPageView: View {
                 format: "停顿 中位 %@s 最长 %@s　书写 %.1fs 落墨 %.1fs",
                 median, longest, rhythm.totalDuration, rhythm.inkDuration
             ),
+            String(
+                format: "成页阈值 %.2fs　悬停 %@　阶段 %@",
+                model.commitWaitLength,
+                model.isPencilHovering ? "是" : "否（本机硬件不支持）",
+                describe(model.phase)
+            ),
         ]
 
-        if let recognition {
+        if let recognition = model.recognition {
             let availability = recognition.availability
             lines.append("识别语言 可用[\(describe(availability.active))]　缺失[\(describe(availability.unavailable))]")
             if !availability.isUsable {
@@ -111,6 +157,17 @@ struct DiaryPageView: View {
         return lines.joined(separator: "\n")
     }
 
+    private func describe(_ phase: DiaryPagePhase) -> String {
+        switch phase {
+        case .blank: "空白"
+        case .writing: "正在写"
+        case .waiting: "等你写完"
+        case .aboutToRespond(let remaining, _): String(format: "预告中 还剩 %.1fs", remaining)
+        case .understanding: "正在读懂这一页"
+        case .awaitingSoul: "已收下（魂未接入）"
+        }
+    }
+
     private func describe(_ languages: [Locale.Language]) -> String {
         languages.isEmpty ? "—" : languages.map(\.minimalIdentifier).joined(separator: ",")
     }
@@ -118,8 +175,6 @@ struct DiaryPageView: View {
 
 // MARK: - Preview
 
-/// 开发期预览：把回应层单独摆出来看排版、字号、行距与书写节奏。
-/// 这段文字是假的，只存在于 Xcode 预览里，不会进入运行的 App。
 #Preview("空白日记页（运行时的真实样子）") {
     DiaryPageView()
 }
@@ -128,10 +183,12 @@ struct DiaryPageView: View {
     ResponseLayoutPreview()
 }
 
-#Preview("回应渲染 · 真笔画逐笔生长（E1）") {
+#Preview("真笔画逐笔生长 + 落笔中断（E1 + E3d）") {
     GlyphStrokeReplayPreview()
 }
 
+/// 开发期预览：把回应层单独摆出来看排版、字号、行距与书写节奏。
+/// 这段文字是假的，只存在于 Xcode 预览里，不会进入运行的 App。
 private struct ResponseLayoutPreview: View {
     private static let sampleResponse = """
     我看见你今天写得很慢。
@@ -185,58 +242,63 @@ private struct ResponseLayoutPreview: View {
     }
 }
 
-/// 开发期预览：**真正的逐笔生长**——文字查成字形笔画，喂进笔画引擎，一笔一笔画出来。
-/// 这条路径第一次把 `GlyphStrokeLayout → StrokePipeline → HandwritingReplayView`
-/// 串起来，也是笔画引擎自建成以来第一次真正被用上。
+/// 开发期预览：**真正的逐笔生长（E1）＋ 落笔中断（E3d）**。
+///
+/// 进来就把一段文字查成字形笔画、喂进笔画引擎、一笔一笔画出来；
+/// 你在纸上写一笔，重播立刻停在当时的进度上，**半截字留在页上**（决策 14）。
+/// 这是打断规则唯一能真正跑起来的地方——运行的 App 里还没有任何回应的生产者
+/// （Oracle 属计划 E6），所以那条路径在 App 里到不了。
+///
 /// 文字是假的，只存在于 Xcode 预览里。
 private struct GlyphStrokeReplayPreview: View {
     /// 纯汉字：当前字形数据集不含标点与拉丁字母（属计划 E1c/E1d），
     /// 用带标点的句子会看到缺字，反而看不清逐笔生长本身。
     private static let sampleResponse = "我看见你今天写得很慢"
 
-    private enum State2 {
-        case notReady
-        case ready(StrokeSequence, uncovered: [Character])
-        case failed(String)
-    }
-
-    @State private var state: State2 = .notReady
-    @State private var startedAt: ContinuousClock.Instant?
+    @State private var model = DiaryPageModel()
+    @State private var uncovered: [Character] = []
+    @State private var failure: String?
     @State private var size: CGSize = .zero
 
     var body: some View {
         GeometryReader { geometry in
             ZStack(alignment: .topLeading) {
-                PageAppearance.paper
+                HandwritingCanvas(
+                    onStrokeBegan: { model.strokeBegan() },
+                    onStrokeFinished: { model.strokeFinished($0) },
+                    onPencilHoverChanged: { model.hoverChanged($0) }
+                )
 
-                switch state {
-                case .notReady:
-                    Color.clear
-                case .failed(let reason):
-                    Text("写不出来：\(reason)")
-                        .font(.footnote)
-                        .foregroundStyle(PageAppearance.ink)
-                        .padding(PageAppearance.pageMargin(for: geometry.size))
-                case .ready(let sequence, let uncovered):
-                    HandwritingReplayView(
-                        sequence: sequence,
-                        replayStartedAt: startedAt
-                    )
-                    if !uncovered.isEmpty {
-                        // 缺字如实说出来，不让页面凭空少东西而无人知晓。
-                        Text("缺笔顺数据：\(String(uncovered))")
-                            .font(.caption2)
-                            .foregroundStyle(PageAppearance.ink.opacity(0.5))
-                            .padding(PageAppearance.pageMargin(for: geometry.size))
-                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
-                    }
+                if let reply = model.reply {
+                    HandwritingReplayView(sequence: reply.sequence, playback: reply.playback)
+                        .allowsHitTesting(false)
                 }
+
+                footnote(in: geometry.size)
             }
             .onAppear { size = geometry.size }
             .onChange(of: geometry.size) { _, new in size = new }
         }
         .ignoresSafeArea()
         .task(id: size) { await build() }
+    }
+
+    @ViewBuilder
+    private func footnote(in size: CGSize) -> some View {
+        if let failure {
+            Text("写不出来：\(failure)")
+                .font(.footnote)
+                .foregroundStyle(PageAppearance.ink)
+                .padding(PageAppearance.pageMargin(for: size))
+        } else if !uncovered.isEmpty {
+            // 缺字如实说出来，不让页面凭空少东西而无人知晓。
+            Text("缺笔顺数据：\(String(uncovered))")
+                .font(.caption2)
+                .foregroundStyle(PageAppearance.ink.opacity(PageAppearance.noticeInkOpacity))
+                .padding(PageAppearance.pageMargin(for: size))
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+                .allowsHitTesting(false)
+        }
     }
 
     private func build() async {
@@ -259,10 +321,10 @@ private struct GlyphStrokeReplayPreview: View {
                 configuration: HandwritingFeel.humanizerConfiguration(referenceScale: glyphSize),
                 seed: HandwritingFeel.defaultSeed
             )
-            state = .ready(sequence, uncovered: laidOut.uncoveredCharacters)
-            startedAt = ContinuousClock.now
+            uncovered = laidOut.uncoveredCharacters
+            model.beginReply(sequence)
         } catch {
-            state = .failed(String(describing: error))
+            failure = String(describing: error)
         }
     }
 }
