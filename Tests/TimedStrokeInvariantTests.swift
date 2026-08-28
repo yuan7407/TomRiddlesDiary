@@ -16,7 +16,7 @@ import Foundation
 @testable import TomRiddlesDiary
 import XCTest
 
-final class TimedStrokeInvariantTests: XCTestCase {
+nonisolated final class TimedStrokeInvariantTests: XCTestCase {
     func testZeroAndPositiveDurationsAreAccepted() {
         XCTAssertEqual(TimedStroke(samples: [], duration: 0).duration, 0)
         XCTAssertEqual(TimedStroke(samples: [], duration: 1.5).duration, 1.5)

@@ -14,7 +14,7 @@
 @testable import TomRiddlesDiary
 import XCTest
 
-final class StrokeGrowthTests: XCTestCase {
+nonisolated final class StrokeGrowthTests: XCTestCase {
     /// 四个采样点、三段线段，压感从 0.2 线性升到 0.8，便于验证插值。
     private func makeStroke() -> TimedStroke {
         TimedStroke(

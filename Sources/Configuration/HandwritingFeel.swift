@@ -27,7 +27,7 @@
 import Foundation
 
 /// 手写手感参数。视图与调用方只许从这里取值。
-enum HandwritingFeel {
+nonisolated enum HandwritingFeel {
     // MARK: 参照尺度
 
     /// 一个字的高度（毫米）。全工程唯一需要物理单位的长度。

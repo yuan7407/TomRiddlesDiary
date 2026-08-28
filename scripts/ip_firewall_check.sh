@@ -118,6 +118,45 @@ for s in "${SENSITIVE[@]}"; do
 done
 [ "$sensitive_fail" = "0" ] && echo "  ✓ 未发现敏感文件入库"
 
+# 4) 纯逻辑层的依赖边界
+# 为什么要机器检查：Sources/ 下所有文件编进同一个模块，文件夹本身不产生任何
+# 编译约束。也就是说没人阻止在 StrokeEngine 里 import SwiftUI，一旦发生，
+# 「引擎不依赖 UI、可独立测试、换渲染实现手感不漂移」这条铁律就悄悄破了，
+# 而且很难发现——代码看起来还在那个文件夹里。这里用白名单把它变成硬错误。
+echo "== 纯逻辑层依赖边界 =="
+check_layer_imports() {
+  local layer="$1" allowed="$2" f line module bad=0
+  [ -d "$layer" ] || return 0
+  while IFS= read -r f; do
+    while IFS= read -r line; do
+      module="${line#*import }"
+      module="${module%% *}"
+      case " $allowed " in
+        *" $module "*) ;;
+        *)
+          echo "  ✗ $layer 不允许依赖 $module  →  ${f#./}"
+          bad=1
+          ;;
+      esac
+    done < <(grep -h '^ *@\{0,1\}[a-z]*[[:space:]]*import ' "$f" 2>/dev/null | sed 's/^ *//')
+  done < <(find "$layer" -name '*.swift')
+  return $bad
+}
+
+if check_layer_imports "Sources/StrokeEngine" "Foundation"; then
+  echo "  ✓ StrokeEngine 只依赖 Foundation"
+else
+  fail=1
+fi
+
+# Handwriting 允许 CoreText/CoreGraphics：中文断行规则与字体度量必须靠系统的
+# 文字排版引擎，自己写必然漏。它们属文字排版，不是 UI 框架。
+if check_layer_imports "Sources/Handwriting" "Foundation CoreGraphics CoreText"; then
+  echo "  ✓ Handwriting 未引入 UI 依赖"
+else
+  fail=1
+fi
+
 echo "================================"
 if [ "$fail" = "0" ]; then
   echo "✓ 门禁通过"

@@ -15,7 +15,7 @@ import CoreGraphics
 @testable import TomRiddlesDiary
 import XCTest
 
-final class TextLayoutTests: XCTestCase {
+nonisolated final class TextLayoutTests: XCTestCase {
     private let layout = TextLayout()
 
     private func makeConfiguration(

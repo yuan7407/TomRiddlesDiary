@@ -19,7 +19,7 @@
 import Foundation
 @testable import TomRiddlesDiary
 
-extension HumanizerConfiguration {
+nonisolated extension HumanizerConfiguration {
     /// 测试基准参数。所有数值与生产配置无关，仅为让断言稳定。
     static func testBaseline(
         sampleSpacing: Double = 2,

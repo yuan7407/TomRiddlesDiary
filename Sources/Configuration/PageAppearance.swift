@@ -23,7 +23,7 @@
 import SwiftUI
 
 /// 纸与墨的外观。视图层只许从这里取值，不许在视图里写颜色或线宽字面量。
-enum PageAppearance {
+nonisolated enum PageAppearance {
     /// 纸的底色。偏暖的米白，模拟旧纸而不是纯白屏幕。
     /// PencilKit 画布与回应渲染层必须同时使用这一个值。
     static let paper = Color(red: 0.985, green: 0.974, blue: 0.94)

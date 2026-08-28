@@ -14,7 +14,7 @@
 @testable import TomRiddlesDiary
 import XCTest
 
-final class StrokePipelineTests: XCTestCase {
+nonisolated final class StrokePipelineTests: XCTestCase {
     private let pipeline = StrokePipeline()
 
     func testOrderedSourcePreservesEndpoints() throws {

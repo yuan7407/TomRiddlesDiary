@@ -22,7 +22,7 @@
 import Foundation
 
 /// 页面度量：毫米与页面点之间的换算。
-enum PageMetrics {
+nonisolated enum PageMetrics {
     /// 每英寸多少个页面点。
     /// 推导：主流 iPad 屏幕约 264 ppi，渲染倍率 2x，故每英寸 264 / 2 = 132 个页面点。
     /// 这是本文件唯一的经验基准值，其余换算都由它导出。

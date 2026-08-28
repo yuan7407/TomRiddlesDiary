@@ -17,7 +17,7 @@
 @testable import TomRiddlesDiary
 import XCTest
 
-final class HandwritingFeelTests: XCTestCase {
+nonisolated final class HandwritingFeelTests: XCTestCase {
     /// 字高翻倍，三个尺度相关参数必须同步翻倍。
     func testScaleDependentParametersScaleLinearly() {
         let single = HandwritingFeel.humanizerConfiguration(referenceScale: 40)

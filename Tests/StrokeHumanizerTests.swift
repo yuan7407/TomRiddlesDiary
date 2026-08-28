@@ -13,7 +13,7 @@
 @testable import TomRiddlesDiary
 import XCTest
 
-final class StrokeHumanizerTests: XCTestCase {
+nonisolated final class StrokeHumanizerTests: XCTestCase {
     private let humanizer = StrokeHumanizer()
 
     func testResamplingPreservesEndpointsAndUsesExpectedSpacing() throws {

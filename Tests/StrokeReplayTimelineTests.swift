@@ -10,8 +10,8 @@
 @testable import TomRiddlesDiary
 import XCTest
 
-@MainActor
-final class StrokeReplayTimelineTests: XCTestCase {
+
+nonisolated final class StrokeReplayTimelineTests: XCTestCase {
     func testEmptySequenceIsImmediatelyComplete() {
         let timeline = StrokeReplayTimeline(sequence: StrokeSequence(strokes: []))
 
