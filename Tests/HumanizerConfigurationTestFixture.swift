@@ -14,6 +14,8 @@
 //    ——那条规则约束的是生产参数，测试基准是独立的输入数据。
 //  - 默认把抖动与各类随机浮动设为 0，让几何与时序断言可以精确比较；需要验证
 //    随机性的测试再显式传入非零值。
+//  - 抖动波长默认 12（= 默认采样间距的 6 倍）。它必须大于采样间距，否则手绘化会
+//    直接崩——那条校验是刻意的，见 `StrokeHumanizer.validate`。
 //
 
 import Foundation
@@ -24,6 +26,7 @@ nonisolated extension HumanizerConfiguration {
     static func testBaseline(
         sampleSpacing: Double = 2,
         jitterAmplitude: Double = 0,
+        jitterWavelength: Double = 12,
         inkLengthPerSecond: Double = 10,
         durationVariation: Double = 0,
         minimumDuration: TimeInterval = 0,
@@ -36,6 +39,7 @@ nonisolated extension HumanizerConfiguration {
         HumanizerConfiguration(
             sampleSpacing: sampleSpacing,
             jitterAmplitude: jitterAmplitude,
+            jitterWavelength: jitterWavelength,
             inkLengthPerSecond: inkLengthPerSecond,
             durationVariation: durationVariation,
             minimumDuration: minimumDuration,

@@ -47,8 +47,12 @@ import PencilKit
 
 /// 这一页此刻处于哪个阶段。
 nonisolated enum DiaryPagePhase: Equatable, Sendable {
-    /// 还什么都没写。
-    case blank
+    /// 这一轮没有新内容可回应。
+    ///
+    /// 两种情况都归这里：页面一片空白，或者你把这一轮刚写的字擦掉了。
+    /// 原来叫 `.blank`，2026-08-29 改名——引入「一轮」的概念之后（计划 E3e），
+    /// 页面上可能还留着上一轮的字，说它「空白」是假话。
+    case nothingNew
 
     /// 笔正在纸上。此时不做任何成页判断——你显然还在写。
     case writing
@@ -94,7 +98,18 @@ final class DiaryPageModel {
     /// 最近一次识别结果。含语言可用性——「本机没有中文模型」和「认不出」必须分开。
     private(set) var recognition: HandwritingRecognition?
 
-    private(set) var phase: DiaryPagePhase = .blank
+    /// 本机的识别语言状况，**在你落笔之前就查好**（计划 E4b）。
+    ///
+    /// 为什么要提前查而不是等识别完再说：缺语言模型时识别器不会返回空，
+    /// 它会把你的笔画硬塞进它手上有的语言里，吐出一串看起来正常的垃圾
+    /// （实测写「你好」得到 `15.47`）。而要判断「这几笔本来是中文」，
+    /// 你得先有中文模型——这是个死循环，事后过滤不掉。
+    /// 所以唯一诚实的做法是在你开始写之前就告诉你：这台设备读不出哪些语言。
+    ///
+    /// nil 表示还没查完（查询要跨进程问系统，不是瞬时的）。
+    private(set) var recognitionAvailability: RecognitionAvailability?
+
+    private(set) var phase: DiaryPagePhase = .nothingNew
 
     /// 阶段实际发布过多少次。**临时诊断用**，只给 DEBUG 读数看，确认笔画不再消失后删除。
     /// 一次「写字 → 等待 → 成页」应该只有个位数；如果又变成几十次，说明高频发布回来了。
@@ -116,6 +131,10 @@ final class DiaryPageModel {
 
     /// 最近一次抬笔时的整页内容。成页时要用它做最后一次识别。
     private var lastDrawing: PKDrawing?
+
+    /// 上一轮成页时的分界时刻（计划 E3e）。晚于它落笔的才算「这一轮新写的」。
+    /// nil 表示还没成过页，整页都算这一轮。
+    private var committedBoundary: Date?
 
     private var countdown: Task<Void, Never>?
     private var recognitionTask: Task<Void, Never>?
@@ -163,14 +182,20 @@ final class DiaryPageModel {
         }
     }
 
-    /// 抬笔：读这一页，并开始等「你是不是还要写」。
+    /// 抬笔：读这一轮写的内容，并开始等「你是不是还要写」。
+    ///
+    /// 注意读的是**这一轮**而不是整页（计划 E3e）。除了避免把旧内容重复交给 Oracle，
+    /// 还有一个好处：书写节奏也变成这一轮的节奏，成页阈值不会被上一轮的停顿污染。
     func strokeFinished(_ drawing: PKDrawing) {
         lastDrawing = drawing
-        reading = reader.read(drawing)
+
+        let round = WritingRound.drawing(of: drawing, after: committedBoundary)
+        reading = reader.read(round)
 
         guard reading?.isEmpty == false else {
-            // 一笔都没有（例如用橡皮擦干净了）。没有内容就没有什么可回应的。
-            setPhase(.blank)
+            // 这一轮没有新笔画：页面空白，或者刚写的被橡皮擦掉了。
+            // 两种情况都没有东西可回应，不该起倒计时。
+            setPhase(.nothingNew)
             lastLift = nil
             countdown?.cancel()
             countdown = nil
@@ -179,8 +204,17 @@ final class DiaryPageModel {
 
         lastLift = .now
         setPhase(.waiting)
-        startRecognition(of: drawing)
+        startRecognition(of: round)
         startCountdown()
+    }
+
+    /// 查一次本机的识别语言状况（计划 E4b）。
+    ///
+    /// 由界面在出现时调用。查询要跨进程问系统，所以是异步的；只查一次，
+    /// 因为「本机装了哪些手写模型」在一次运行里不会变。
+    func loadRecognitionAvailability() async {
+        guard recognitionAvailability == nil else { return }
+        recognitionAvailability = await recognizer.availability()
     }
 
     /// 悬停状态变化。只有支持悬停的硬件会调到这里。
@@ -261,16 +295,30 @@ final class DiaryPageModel {
         }
     }
 
-    /// 成页：这一页收下了。
+    /// 成页：这一轮收下了。
     ///
-    /// 先做一次完整识别再收下，而不是复用等待期那次结果：等待期的识别可能还在跑，
-    /// 或者只覆盖到倒数第二笔。收下的文字必须是整页的最终内容。
+    /// 为什么要重新识别一次而不是复用等待期那次结果：等待期的识别可能还在跑，
+    /// 也可能只覆盖到倒数第二笔。收下的文字必须是这一轮的最终内容。
+    ///
+    /// 识别范围是**这一轮**，不是整页（计划 E3e）。
     private func commit() async {
         guard let drawing = lastDrawing else { return }
 
+        let round = WritingRound.drawing(of: drawing, after: committedBoundary)
+        // 这一轮空了（成页判断跑完之前被擦干净）就直接说没有新内容，
+        // 不去识别一张空图、更不能把上一轮的内容当成新的交出去。
+        guard !round.strokes.isEmpty else {
+            setPhase(.nothingNew)
+            return
+        }
+
         setPhase(.understanding)
         recognitionTask?.cancel()
-        recognition = await recognizer.recognize(drawing)
+        recognition = await recognizer.recognize(round)
+
+        // 推进分界点：此刻页面上的所有笔画都算「已经交出去过」。
+        // 用整页的最晚时刻而不是这一轮的，这样即使中途有笔画顺序异常也不会重复交。
+        committedBoundary = WritingRound.boundary(of: drawing) ?? committedBoundary
 
         // 下一步（计划 E6）：把认出来的文字交给 Oracle，拿回应，
         // 用 `GlyphStrokeLayout` 排成笔画，装进 `reply` 开始逐笔写。

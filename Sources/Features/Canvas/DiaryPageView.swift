@@ -61,6 +61,8 @@ struct DiaryPageView: View {
 
                 if model.phase == .awaitingSoul {
                     soulNotConnectedNotice(in: geometry.size)
+                } else if let missing = unreadableLanguages, model.phase == .nothingNew {
+                    unreadableLanguageNotice(missing, in: geometry.size)
                 }
 
                 #if DEBUG
@@ -70,6 +72,49 @@ struct DiaryPageView: View {
         }
         .ignoresSafeArea()
         .accessibilityLabel("日记页")
+        .task { await model.loadRecognitionAvailability() }
+    }
+
+    /// 本机读不出来的语言。没有查完、或者全都能读时为 nil。
+    private var unreadableLanguages: [Locale.Language]? {
+        guard let availability = model.recognitionAvailability,
+              !availability.unavailable.isEmpty
+        else { return nil }
+        return availability.unavailable
+    }
+
+    /// 落笔**之前**就告知这台设备读不出哪些语言（计划 E4b）。
+    ///
+    /// 为什么必须写在前面而不是等识别完再说：缺语言模型时识别器不会返回空，
+    /// 它会把笔画硬塞进它手上有的语言里，吐出一串看起来正常的垃圾
+    /// （实测写「你好」得到 `15.47`）。而要判断「这几笔本来是中文」，你得先有中文模型
+    /// ——事后过滤不掉。等接上 Oracle 之后，魂会一本正经地回应那串垃圾，
+    /// 而你只会觉得 AI 很傻，完全查不到是输入端就错了。
+    ///
+    /// 为什么不禁止书写：能读的语言照样能用（模拟器上英文就是好的），
+    /// 一句话说清代价比直接不让人写更有用。
+    ///
+    /// 语言名字用系统本地化，不在代码里写「中文」这种字面量——请求的语言列表
+    /// 是配置项，写死名字迟早对不上。
+    /// 只在这一轮还没落笔时显示（`.nothingNew`），因为它的全部价值就是「写之前」。
+    private func unreadableLanguageNotice(_ missing: [Locale.Language], in size: CGSize) -> some View {
+        Text("这台设备读不出\(describeNames(missing))手写。写了也会被认成别的字符，而且不会报错。")
+            .font(.footnote)
+            .foregroundStyle(PageAppearance.ink.opacity(PageAppearance.noticeInkOpacity))
+            .multilineTextAlignment(.center)
+            .padding(PageAppearance.pageMargin(for: size))
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .allowsHitTesting(false)
+    }
+
+    /// 把语言代码换成当前系统语言下的语言名。
+    private func describeNames(_ languages: [Locale.Language]) -> String {
+        let names = languages.compactMap { language in
+            language.languageCode.flatMap {
+                Locale.current.localizedString(forLanguageCode: $0.identifier)
+            }
+        }
+        return names.isEmpty ? "部分语言的" : names.joined(separator: "、")
     }
 
     /// 成页预告，**仅 DEBUG**。
@@ -137,7 +182,7 @@ struct DiaryPageView: View {
 
         var lines = [
             "DEBUG 读数",
-            "笔数 \(reading.polylines.count)　采样点 \(samples)",
+            "本轮笔数 \(reading.polylines.count)　采样点 \(samples)",
             "力度 \(force)　有效压感 \(reading.hasVaryingForce ? "是" : "否")",
             String(
                 format: "停顿 中位 %@s 最长 %@s　书写 %.1fs 落墨 %.1fs",
@@ -167,12 +212,20 @@ struct DiaryPageView: View {
             lines.append("识别中…")
         }
 
+        // 落笔前查到的语言状况（E4b 的信号来源）。和上面那条不同：
+        // 这一条不依赖有没有识别过，所以空白页上也看得见。
+        if let availability = model.recognitionAvailability {
+            lines.append("本机可读[\(describe(availability.active))]　读不出[\(describe(availability.unavailable))]")
+        } else {
+            lines.append("本机识别能力查询中…")
+        }
+
         return lines.joined(separator: "\n")
     }
 
     private func describe(_ phase: DiaryPagePhase) -> String {
         switch phase {
-        case .blank: "空白"
+        case .nothingNew: "这一轮没有新内容"
         case .writing: "正在写"
         case .waiting: "等你写完"
         case .aboutToRespond: "预告中（再写一笔可取消）"

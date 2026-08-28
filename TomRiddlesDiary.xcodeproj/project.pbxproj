@@ -138,10 +138,10 @@
 				};
 			};
 			buildConfigurationList = 2F90C5873011F42E000B2DC2 /* Build configuration list for PBXProject "TomRiddlesDiary" */;
-			developmentRegion = en;
+			developmentRegion = "zh-Hans";
 			hasScannedForEncodings = 0;
 			knownRegions = (
-				en,
+				"zh-Hans",
 				Base,
 			);
 			mainGroup = 2F90C5833011F42E000B2DC2;
