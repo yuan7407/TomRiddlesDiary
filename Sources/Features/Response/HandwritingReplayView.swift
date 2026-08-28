@@ -69,28 +69,36 @@ struct HandwritingReplayView: View {
         }
     }
 
+    /// 画一笔当前该露出的部分。
+    ///
+    /// 「这一笔是点还是线」由引擎判定（`PartialStroke` 的两个 case），
+    /// 本视图不再自己看采样点个数——那是几何决定，不属于渲染层（计划 A7）。
     private func draw(stroke: TimedStroke, progress: Double, in context: inout GraphicsContext) {
         guard let partial = StrokeGrowth.partial(of: stroke, progress: progress) else { return }
 
-        // 单采样点的笔就是一个墨点。
-        // 已知缺陷（计划 A7）：这里一出现就是全尺寸，不随进度长出来。
-        if stroke.samples.count == 1, let dot = stroke.samples.first {
-            drawDot(dot, in: &context)
-            return
-        }
+        switch partial {
+        case .dot(let sample, let sizeFraction):
+            drawDot(sample, sizeFraction: sizeFraction, in: &context)
 
-        for index in 0 ..< partial.completeSegmentCount {
-            drawSegment(from: stroke.samples[index], to: stroke.samples[index + 1], in: &context)
-        }
-
-        if let tip = partial.growingTip {
-            drawSegment(from: stroke.samples[partial.growingSegmentStartIndex], to: tip, in: &context)
+        case .line(let completeSegmentCount, let growingTip):
+            for index in 0 ..< completeSegmentCount {
+                drawSegment(from: stroke.samples[index], to: stroke.samples[index + 1], in: &context)
+            }
+            if let tip = growingTip {
+                drawSegment(from: stroke.samples[completeSegmentCount], to: tip, in: &context)
+            }
         }
     }
 
-    private func drawDot(_ sample: StrokeSample, in context: inout GraphicsContext) {
+    /// 画墨点。`sizeFraction` 是引擎算出的生长比例（计划 A7），
+    /// 本视图只负责把它乘到直径上。
+    private func drawDot(_ sample: StrokeSample, sizeFraction: Double, in context: inout GraphicsContext) {
         let center = viewPoint(sample.point)
-        let width = PageAppearance.inkWidth(forPressure: sample.pressure)
+        let width = PageAppearance.inkWidth(forPressure: sample.pressure) * sizeFraction
+        // 尺寸还是 0 时不画：Path(ellipseIn:) 对零尺寸矩形没有意义，
+        // 而且这一帧本来就该什么都看不见。
+        guard width > 0 else { return }
+
         context.fill(
             Path(ellipseIn: CGRect(
                 x: center.x - width / 2,

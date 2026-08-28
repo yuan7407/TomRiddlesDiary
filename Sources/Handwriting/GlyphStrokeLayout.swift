@@ -13,13 +13,20 @@
 //  是传统的**等宽字面方格**（每字占满一个 em）。若拿比例字宽去摆等宽字面的笔画，
 //  字与字会互相压。等宽也正是中文传统排版的常态。
 //  所以这里是一套独立的简单排版，而不是硬把两种字宽凑到一起。
-//  代价是失去了 CoreText 的中文断行规则（标点不出现在行首等）——但当前数据集
-//  本来就不含标点，等 E1c 补上标点笔画时再一并处理。
+//
+//  字宽（2026-08-29，计划 E1c）：
+//  「等宽」只对汉字与全角标点成立。西文标点天生窄得多——一个英文句点占三成宽，
+//  若也占满一格，英文句子里会全是空洞。所以行内位置改用**游标**推进，
+//  每个字按自己的 `advanceWidth` 往前走，不再是「第几列 × 字宽」。
+//
+//  已知缺口：中文断行规则还没有（标点不该出现在行首、不该把「」拆开）。
+//  CoreText 会做这件事，但它的字宽模型与等宽字面方格不兼容，所以这里没有。
+//  标点刚补上（E1c），这条缺口现在才真正暴露出来，需要单独处理。
 //
 //  设计原因：
 //  - 没有笔顺数据的字**如实报告**，不静默跳过。跳过会让页面上凭空少一个字，
-//    而调用方完全不知道发生了什么。数据集只覆盖汉字，标点、拉丁字母、数字都缺
-//    （属计划 E1c/E1d 要补的部分）。
+//    而调用方完全不知道发生了什么。目前汉字与标点已覆盖，
+//    拉丁字母与数字仍缺（属计划 E1d）。
 //  - 输出直接是 `[Polyline]` 而不是「每个字 + 它的笔画」：引擎要的就是一串有序笔画，
 //    多包一层结构只会让调用方再拆一次。按字的信息用 `strokeCountsPerGlyph` 单独给出，
 //    需要按字做节奏（例如每写完一个字稍作停顿）时够用。
@@ -81,29 +88,45 @@ nonisolated struct GlyphStrokeLayout: Sendable {
         try probeResource()
 
         let lineHeight = configuration.glyphSize * configuration.lineSpacingRatio
-        // 一行放得下几个字。至少放一个，否则字比行宽还大时会死循环。
-        let glyphsPerLine = max(1, Int(configuration.lineWidth / configuration.glyphSize))
 
         var polylines: [Polyline] = []
         var strokeCounts: [Int] = []
         var uncovered: [Character] = []
-        var column = 0
+        // 行内游标，相对行首。改用游标而不是「第几列 × 字宽」，是因为字宽不再统一：
+        // 汉字与全角标点占满一格，西文标点只占三成（计划 E1c 起）。
+        var cursorX = 0.0
         var line = 0
 
         for character in text {
             if character.isNewline {
                 line += 1
-                column = 0
+                cursorX = 0
                 continue
             }
-            if column >= glyphsPerLine {
-                line += 1
-                column = 0
+
+            // 只吞「这个字没覆盖」，资源级故障必须继续往上抛。
+            // 用 `try?` 会把两者混成一个 nil，于是资源坏掉时表现为「所有字都没覆盖」，
+            // 把故障伪装成数据集不全，查错方向完全跑偏。
+            let glyph: GlyphStrokes?
+            do {
+                glyph = try provider.strokes(for: character)
+            } catch GlyphStrokeLookupFailure.characterNotCovered {
+                glyph = nil
             }
 
-            do {
-                let glyph = try provider.strokes(for: character)
-                let originX = configuration.origin.x + Double(column) * configuration.glyphSize
+            // 画不出来的字也要占位，否则后面的字会挤上来，让「少了一个字」
+            // 看起来像「排版错乱」。宽度未知时按一整格算——它最可能是个汉字。
+            let advance = (glyph?.advanceWidth ?? 1) * configuration.glyphSize
+
+            // 换行：放不下就换。`cursorX > 0` 这个条件是必需的——
+            // 某个字比整行还宽时，没有它会一直换行、永远放不下，成死循环。
+            if cursorX > 0, cursorX + advance > configuration.lineWidth {
+                line += 1
+                cursorX = 0
+            }
+
+            if let glyph {
+                let originX = configuration.origin.x + cursorX
                 let originY = configuration.origin.y + Double(line) * lineHeight
 
                 for stroke in glyph.strokes {
@@ -115,13 +138,11 @@ nonisolated struct GlyphStrokeLayout: Sendable {
                     ))
                 }
                 strokeCounts.append(glyph.strokes.count)
-            } catch GlyphStrokeLookupFailure.characterNotCovered {
-                // 这个字画不出来。位置照样往前走，否则后面的字会挤上来，
-                // 让「少了一个字」看起来像「排版错乱」。
+            } else {
                 uncovered.append(character)
             }
 
-            column += 1
+            cursorX += advance
         }
 
         return LaidOutGlyphStrokes(

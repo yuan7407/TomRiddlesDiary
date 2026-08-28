@@ -34,12 +34,33 @@ nonisolated struct TimedStroke: Equatable, Sendable {
     let samples: [StrokeSample]
     let duration: TimeInterval
 
-    init(samples: [StrokeSample], duration: TimeInterval) {
+    /// 这一笔落笔**之前**，笔在空中的时间（秒）。
+    ///
+    /// 为什么要有它（计划 A4，2026-08-29）：在此之前后一笔在前一笔结束的同一瞬间起笔，
+    /// 笔尖从一个字的末端瞬移到下一笔的起点。真人写字时笔要抬起来、移过去、再落下，
+    /// 这段时间是看得见的——它就是「一笔一笔写」的节奏所在。零间隔的观感是
+    /// 「一条连续的线在自己爬」，而不是有人在写字。
+    ///
+    /// 为什么叫 before 而不是 after：第一笔天然没有这段时间（前面没有笔），
+    /// 用 before 时它自然是 0；用 after 则要为最后一笔想一个没有意义的值。
+    ///
+    /// 默认 0 是**有含义的合法值**（第一笔、或者刻意不要间隔），
+    /// 不是一个没验证过的猜测值——这一点和 `HumanizerConfiguration` 刻意不给默认值
+    /// 的理由不冲突：那些参数是尺度相关的，任何默认值都只在某个字号下成立。
+    let pauseBefore: TimeInterval
+
+    init(samples: [StrokeSample], duration: TimeInterval, pauseBefore: TimeInterval = 0) {
         precondition(duration >= 0, "Stroke duration cannot be negative")
         precondition(duration.isFinite, "Stroke duration must be finite")
+        precondition(pauseBefore >= 0, "Pause before a stroke cannot be negative")
+        precondition(pauseBefore.isFinite, "Pause before a stroke must be finite")
         self.samples = samples
         self.duration = duration
+        self.pauseBefore = pauseBefore
     }
+
+    /// 这一笔在时间轴上占用的总长度：抬笔移动 + 落墨。
+    var totalDuration: TimeInterval { pauseBefore + duration }
 
     var length: Double {
         zip(samples, samples.dropFirst()).reduce(into: 0) { total, pair in
@@ -52,9 +73,10 @@ nonisolated struct TimedStroke: Equatable, Sendable {
 nonisolated struct StrokeSequence: Equatable, Sendable {
     let strokes: [TimedStroke]
 
-    /// 全部笔画串行播放的总时长。`TimedStroke` 已保证时长非负且有限，直接累加即可。
+    /// 全部笔画串行播放的总时长，**含笔间抬笔移动的时间**（计划 A4）。
+    /// `TimedStroke` 已保证两个时长都非负且有限，直接累加即可。
     var totalDuration: TimeInterval {
-        strokes.reduce(into: 0) { $0 += $1.duration }
+        strokes.reduce(into: 0) { $0 += $1.totalDuration }
     }
 }
 
