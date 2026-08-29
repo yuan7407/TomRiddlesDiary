@@ -94,7 +94,10 @@ struct HandwritingReplayView: View {
     /// 本视图只负责把它乘到直径上。
     private func drawDot(_ sample: StrokeSample, sizeFraction: Double, in context: inout GraphicsContext) {
         let center = viewPoint(sample.point)
-        let width = PageAppearance.inkWidth(forPressure: sample.pressure) * sizeFraction
+        let width = PageAppearance.inkWidth(
+            forPressure: sample.pressure,
+            contact: sample.contact
+        ) * sizeFraction
         // 尺寸还是 0 时不画：Path(ellipseIn:) 对零尺寸矩形没有意义，
         // 而且这一帧本来就该什么都看不见。
         guard width > 0 else { return }
@@ -122,7 +125,12 @@ struct HandwritingReplayView: View {
             path,
             with: .color(PageAppearance.ink),
             style: StrokeStyle(
-                lineWidth: PageAppearance.inkWidth(forPressure: (start.pressure + end.pressure) / 2),
+                // 一段线用两端的平均值。接触也要一起平均——只平均压感的话，
+                // 收笔那一段会保持满宽直到最后一刻，收不出渐细（计划 A5）。
+                lineWidth: PageAppearance.inkWidth(
+                    forPressure: (start.pressure + end.pressure) / 2,
+                    contact: (start.contact + end.contact) / 2
+                ),
                 lineCap: .round,
                 lineJoin: .round
             )
