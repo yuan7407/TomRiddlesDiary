@@ -195,7 +195,7 @@ nonisolated final class DiaryPageModelTests: XCTestCase {
         // 一轮的合法变化是：等待 → 预告 → 读懂 → 已收下，也就是 4 次。
         // 留一点余量，但绝不能是几十次。
         XCTAssertLessThanOrEqual(
-            model.phaseUpdateCount,
+            model.publishedPhaseCount,
             6,
             "等待期内重复发布同一个阶段会让界面每秒重建十次，笔画会从纸上消失"
         )

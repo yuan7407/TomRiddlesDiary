@@ -36,13 +36,6 @@ nonisolated enum PageAppearance {
     /// 深浅不一。它们的共同点是「要看得见但不能抢走手写内容」。
     static let noticeInkOpacity: Double = 0.55
 
-    /// 说明性文字四周的留白（视图点）。
-    /// 只服务于 DEBUG 横幅这类贴在页面上的说明块，与页边距是两回事。
-    static let noticePadding: Double = 10
-
-    /// DEBUG 横幅底色的浓度。刻意做得明显——它的用途是让开发期状态一眼可见，
-    /// 不需要含蓄。产品面不出现任何这类横幅。
-    static let debugBannerOpacity: Double = 0.82
 
     /// 行距，表达为字高的倍数。1.6 → 9 mm 的字行间约留 5.4 mm 空隙。
     /// 手写比印刷需要更松的行距：字有高低起伏，行贴太近会互相蹭到。
