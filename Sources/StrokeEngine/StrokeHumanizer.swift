@@ -222,18 +222,15 @@ nonisolated struct StrokeHumanizer: Sendable {
                 lower: configuration.minimumPressure,
                 upper: configuration.maximumPressure
             )
-            let taper = taperEnvelope(at: progress, fraction: configuration.taperFraction)
-            let pressure = configuration.minimumPressure
-                + (bodyPressure - configuration.minimumPressure) * taper
+            // 起收笔的渐细现在作用在**接触**上，不再压在压感上（计划 A5）。
+            // 原来的写法是 `压感 = 下限 + (主体压感 - 下限) × 渐细`，
+            // 而压感映射到线宽有 60% 的下限，所以渐细最多把线收到 60%，收不到零。
+            // 分开之后压感保持它该有的范围，接触负责「笔尖离纸」这件事。
+            let contact = taperEnvelope(at: progress, fraction: configuration.taperFraction)
 
-            return StrokeSample(
-                point: point,
-                pressure: clamp(
-                    pressure,
-                    lower: configuration.minimumPressure,
-                    upper: configuration.maximumPressure
-                )
-            )
+            // `bodyPressure` 已经在上面夹进了量程内，这里不再重复夹一遍——
+            // 那属于防御性堆叠：真出现越界值，问题在产生它的地方，夹住只会藏起来。
+            return StrokeSample(point: point, pressure: bodyPressure, contact: contact)
         }
 
         // 时长按实际长度算，长笔自然画得久；再乘一个轻微扰动，避免每笔节奏完全一致。
@@ -429,14 +426,22 @@ nonisolated struct StrokeHumanizer: Sendable {
         let cumulative = arcLengths(of: points)
         guard let totalLength = cumulative.last, totalLength > 0 else { return [first] }
 
-        // 目标距离必须包含 0 和总长，这样首尾点才会被精确保留。
-        var targetDistances = [0.0]
-        var nextDistance = spacing
-        while nextDistance < totalLength {
-            targetDistances.append(nextDistance)
-            nextDistance += spacing
+        // 把总长等分成整数份，而不是按固定步长一路累加、最后硬塞一个总长（计划 A8）。
+        //
+        // 原来的写法是「每隔 spacing 放一个点，走不到总长就停，然后再把总长补上」。
+        // 问题在最后那一补：如果总长刚好只比上一个点多出一丁点，末尾就会出现一段
+        // 长度接近 0 的线段。后果不只是多一个点——
+        // 摆动要在那里算法线（前后两点几乎重合，方向退化）、
+        // 收笔渐细要在那里判断位置（两个点几乎同一个位置却分属不同的渐细阶段）、
+        // 渲染要画一段看不见的线。这些都不会报错，只会让收笔处偶发地不对劲。
+        //
+        // 等分之后实际间距会与请求的 spacing 略有出入，这是对的：
+        // spacing 是「大约多密」的目标，不是必须精确满足的硬约束；
+        // 而「首尾点精确落在笔画两端」「没有退化线段」是不能让步的。
+        let stepCount = max(1, Int((totalLength / spacing).rounded()))
+        let targetDistances = (0 ... stepCount).map { step in
+            totalLength * Double(step) / Double(stepCount)
         }
-        targetDistances.append(totalLength)
 
         // segmentIndex 单向前进，使整个重采样保持 O(n)，不对每个目标点重新查找。
         var segmentIndex = 0

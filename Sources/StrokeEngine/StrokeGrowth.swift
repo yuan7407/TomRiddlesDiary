@@ -67,9 +67,12 @@ nonisolated enum StrokeGrowth {
 
         let start = stroke.samples[completeSegments]
         let end = stroke.samples[completeSegments + 1]
+        // 压感与接触都要一起插值。接触漏掉的话，正在生长的笔尖会在最后一段
+        // 突然从满宽跳到零宽，收笔看起来像被剪断（计划 A5）。
         let tip = StrokeSample(
             point: Point2D.interpolate(from: start.point, to: end.point, fraction: partial),
-            pressure: start.pressure + (end.pressure - start.pressure) * partial
+            pressure: start.pressure + (end.pressure - start.pressure) * partial,
+            contact: start.contact + (end.contact - start.contact) * partial
         )
 
         return .line(completeSegmentCount: completeSegments, growingTip: tip)

@@ -73,15 +73,26 @@ nonisolated enum PageAppearance {
         PageMetrics.points(fromMillimeters: userInkWidthInMillimeters)
     }
 
-    /// 把 0…1 的压感换算成魂的墨线宽度（视图点）。
+    /// 把压感与接触换算成魂的墨线宽度（视图点）。
     ///
     /// **是绝对宽度，不随字号缩放**：魂和用户用同一支笔，而真实的笔不会因为字写得小
     /// 就变细。满压等于用户笔宽，最轻是它的 `inkWidthAtLightestPressureRatio`。
     ///
-    /// - Parameter pressure: 0…1 的压感。超出范围时夹紧，避免异常数据画出负宽度。
-    static func inkWidth(forPressure pressure: Double) -> Double {
+    /// 两个入参各管一件事（计划 A5，2026-08-29）：
+    /// - `pressure` 决定线宽落在 60%…100% 这个区间的哪里。**这个下限是对的**：
+    ///   手写时线不会因为松一点力就细成头发。
+    /// - `contact` 直接乘在结果上，所以起收笔（接触为 0）能真的收到零宽。
+    ///
+    /// 之前只有压感一个入参，起收笔靠把压感压低来表现，但压感有 60% 的下限，
+    /// 于是**永远收不到零**——那正是 A5 要修的。
+    ///
+    /// - Parameters:
+    ///   - pressure: 0…1 的压感。超出范围时夹紧，避免异常数据画出负宽度。
+    ///   - contact: 0…1 的接触程度。同样夹紧。
+    static func inkWidth(forPressure pressure: Double, contact: Double = 1) -> Double {
         let lightest = userInkWidth * HandwritingFeel.inkWidthAtLightestPressureRatio
         let span = userInkWidth - lightest
-        return lightest + min(1, max(0, pressure)) * span
+        let pressed = lightest + min(1, max(0, pressure)) * span
+        return pressed * min(1, max(0, contact))
     }
 }
