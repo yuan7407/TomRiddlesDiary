@@ -157,6 +157,16 @@ else
   fail=1
 fi
 
+# Calibration 是开发期的量尺（计划 A10）：读真人笔迹算出该配什么参数。
+# 它必须和引擎一样纯——一旦让它 import PencilKit 或 SwiftUI，
+# 「量尺」就会退化成「只能在 App 里跑的东西」，测不了、也没法离线分析采样。
+# 「怎么从 PencilKit 读出这些数」属画布层（`PenTraceReader`）。
+if check_layer_imports "Sources/Calibration" "Foundation"; then
+  echo "  ✓ Calibration 只依赖 Foundation"
+else
+  fail=1
+fi
+
 echo "================================"
 if [ "$fail" = "0" ]; then
   echo "✓ 门禁通过"

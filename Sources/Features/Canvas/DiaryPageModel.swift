@@ -28,9 +28,9 @@
 //  二、阶段不再携带高频变化的数据。改完一次等待期只发布四次（等待 → 预告 →
 //  读懂 → 已收下），而不是几十次。
 //
-//  `phaseUpdateCount` 是为这件事加的**临时**计数器，只在 DEBUG 读数里显示：
-//  如果改完墨还是消失、而计数很低，就说明上面这个推断是错的，得换方向查。
-//  确认修好后删掉它。
+//  这条修复的长期守卫是 `DiaryPageModelTests.testPhaseIsPublishedOnlyWhenItActuallyChanges`
+//  （一轮等待期只许发布个位数次阶段变化）。当时另加的临时计数器已于同日删除——
+//  它的用途只是让人从界面上读出发布次数，而那件事测试已经在管了。
 //
 //  已知的产品问题（不在本步解决，别当成已解决）：
 //  一、成页时识别的是**整页**，也就是包含之前已经收下过的内容。真实产品里
@@ -111,10 +111,6 @@ final class DiaryPageModel {
 
     private(set) var phase: DiaryPagePhase = .nothingNew
 
-    /// 阶段实际发布过多少次。**临时诊断用**，只给 DEBUG 读数看，确认笔画不再消失后删除。
-    /// 一次「写字 → 等待 → 成页」应该只有个位数；如果又变成几十次，说明高频发布回来了。
-    private(set) var phaseUpdateCount = 0
-
     /// 魂那段回应。E6 之前恒为 nil。
     private(set) var reply: ReplyOnPage?
 
@@ -135,6 +131,11 @@ final class DiaryPageModel {
     /// 上一轮成页时的分界时刻（计划 E3e）。晚于它落笔的才算「这一轮新写的」。
     /// nil 表示还没成过页，整页都算这一轮。
     private var committedBoundary: Date?
+
+    /// 阶段发布次数。仅供测试断言「等待期没有高频重建界面」——
+    /// 那条断言守着 2026-08-29 的「笔画写完就消失」不再复发。
+    /// 界面不读它（原先的 DEBUG 读数已删除）。
+    private(set) var publishedPhaseCount = 0
 
     private var countdown: Task<Void, Never>?
     private var recognitionTask: Task<Void, Never>?
@@ -242,7 +243,7 @@ final class DiaryPageModel {
     private func setPhase(_ next: DiaryPagePhase) {
         guard phase != next else { return }
         phase = next
-        phaseUpdateCount += 1
+        publishedPhaseCount += 1
     }
 
 
@@ -319,6 +320,14 @@ final class DiaryPageModel {
         // 推进分界点：此刻页面上的所有笔画都算「已经交出去过」。
         // 用整页的最晚时刻而不是这一轮的，这样即使中途有笔画顺序异常也不会重复交。
         committedBoundary = WritingRound.boundary(of: drawing) ?? committedBoundary
+
+        #if DEBUG
+        // 计划 A10：把这一轮的真人笔迹量成数字，打进控制台。
+        // 只在 DEBUG：这是开发期的量尺，不是产品功能。
+        // 刻意**不打识别出来的文字**——日志里不该出现日记内容（AGENTS.md 数据隐私）。
+        // 输出格式见 `CalibrationReport.summary`，可以直接贴进对话里对照当前配置。
+        print(HandwritingCalibration.analyze(PenTraceReader().read(round)).summary)
+        #endif
 
         // 下一步（计划 E6）：把认出来的文字交给 Oracle，拿回应，
         // 用 `GlyphStrokeLayout` 排成笔画，装进 `reply` 开始逐笔写。

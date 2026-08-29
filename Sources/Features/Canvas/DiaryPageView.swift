@@ -9,9 +9,11 @@
 //  Magic Stroke Lab 诊断界面；Lab 已整体删除，这层空转的中转也一并去掉。
 //
 //  当前真实状态（诚实说明，别对着界面猜）：
-//  你可以在纸上写字；停笔一会儿后纸边会渗出一点墨（成页预告），再写一笔就能取消；
-//  不写就会成页，这一页被读懂。**但读懂之后什么都不会发生**——魂（Oracle）
-//  还没接入（计划 E6）。界面会用一行字如实说出这一点，不假装在思考。
+//  你可以在纸上写字；停笔一会儿这一页会被收下并读懂（识别）。**读懂之后什么都不会发生**
+//  ——魂（Oracle）还没接入（计划 E6）。界面上不会有任何提示，因为那属于开发期脚手架，
+//  2026-08-29 已按用户要求全部清掉（成页预告横幅、「魂尚未接入」文案、页脚 DEBUG 读数）。
+//  纸上唯一保留的非内容元素是「这台设备读不出哪些语言」那句提示，它是真正的产品功能
+//  （计划 E4b）：缺语言模型时识别器会吐出看起来正常的垃圾，只能事先告知。
 //
 //  为什么不放一段示例回应在这里：
 //  2026-08-28 之前这里有一段固定示例，进页面就自动逐字写出来。它当初的用途是
@@ -27,9 +29,8 @@
 //  不好控；等回应写完再「落定」进 PKDrawing（用户就能用橡皮擦掉，决策 18）。
 //  回应层不接受点击，否则它会挡住下面的纸让人写不了字。
 //
-//  已知的未决产品问题：用户在哪写、魂在哪回应，目前两者共用整页、毫无分隔，
-//  所以会互相压字。这个版式决定待用户拍板（见 `MEMORY.md` 待决项）。
-//  成页预告那团墨的位置也因此是临时的。
+//  已知的未决产品问题：用户在哪写、魂在哪回应。用户已定方向（排在刚写完那句话旁边
+//  找空位），但还没有实现，所以现在两层共用整页、毫无分隔。
 //
 
 import PencilKit
@@ -53,21 +54,9 @@ struct DiaryPageView: View {
                         .allowsHitTesting(false)
                 }
 
-                #if DEBUG
-                if model.phase == .aboutToRespond {
-                    commitHint(in: geometry.size)
+                if let notice = recognitionNotice, model.phase == .nothingNew {
+                    recognitionNoticeView(notice, in: geometry.size)
                 }
-                #endif
-
-                if model.phase == .awaitingSoul {
-                    soulNotConnectedNotice(in: geometry.size)
-                } else if let missing = unreadableLanguages, model.phase == .nothingNew {
-                    unreadableLanguageNotice(missing, in: geometry.size)
-                }
-
-                #if DEBUG
-                strokeReadout(in: geometry.size)
-                #endif
             }
         }
         .ignoresSafeArea()
@@ -75,30 +64,32 @@ struct DiaryPageView: View {
         .task { await model.loadRecognitionAvailability() }
     }
 
-    /// 本机读不出来的语言。没有查完、或者全都能读时为 nil。
-    private var unreadableLanguages: [Locale.Language]? {
-        guard let availability = model.recognitionAvailability,
-              !availability.unavailable.isEmpty
-        else { return nil }
-        return availability.unavailable
-    }
-
-    /// 落笔**之前**就告知这台设备读不出哪些语言（计划 E4b）。
+    /// 落笔**之前**要告诉用户的话，没有则为 nil（计划 E4b）。
     ///
-    /// 为什么必须写在前面而不是等识别完再说：缺语言模型时识别器不会返回空，
+    /// 为什么必须写在前面而不是等识别完再说：缺语言模型时识别器**不返回空**，
     /// 它会把笔画硬塞进它手上有的语言里，吐出一串看起来正常的垃圾
-    /// （实测写「你好」得到 `15.47`）。而要判断「这几笔本来是中文」，你得先有中文模型
+    /// （实测写「你好」得到 `15.47`）。而要判断「这几笔本来是中文」得先有中文模型
     /// ——事后过滤不掉。等接上 Oracle 之后，魂会一本正经地回应那串垃圾，
     /// 而你只会觉得 AI 很傻，完全查不到是输入端就错了。
     ///
+    /// 两种情况必须分开说，因为解决办法完全不同：
+    /// 系统太旧要升级系统；缺语言模型是这台设备本身读不出那种文字。
+    private var recognitionNotice: String? {
+        guard let availability = model.recognitionAvailability else { return nil }
+
+        if !availability.systemProvidesRecognition {
+            return "这台设备的系统还没有手写识别（需要 iPadOS \(HandwritingRecognizer.requiredSystemVersion)）。"
+                + "写下的字暂时读不出来。"
+        }
+        guard !availability.unavailable.isEmpty else { return nil }
+        return "这台设备读不出\(describeNames(availability.unavailable))手写。写了也会被认成别的字符，而且不会报错。"
+    }
+
     /// 为什么不禁止书写：能读的语言照样能用（模拟器上英文就是好的），
     /// 一句话说清代价比直接不让人写更有用。
-    ///
-    /// 语言名字用系统本地化，不在代码里写「中文」这种字面量——请求的语言列表
-    /// 是配置项，写死名字迟早对不上。
     /// 只在这一轮还没落笔时显示（`.nothingNew`），因为它的全部价值就是「写之前」。
-    private func unreadableLanguageNotice(_ missing: [Locale.Language], in size: CGSize) -> some View {
-        Text("这台设备读不出\(describeNames(missing))手写。写了也会被认成别的字符，而且不会报错。")
+    private func recognitionNoticeView(_ text: String, in size: CGSize) -> some View {
+        Text(text)
             .font(.footnote)
             .foregroundStyle(PageAppearance.ink.opacity(PageAppearance.noticeInkOpacity))
             .multilineTextAlignment(.center)
@@ -108,6 +99,7 @@ struct DiaryPageView: View {
     }
 
     /// 把语言代码换成当前系统语言下的语言名。
+    /// 不在代码里写「中文」这种字面量——请求的语言列表是配置项，写死名字迟早对不上。
     private func describeNames(_ languages: [Locale.Language]) -> String {
         let names = languages.compactMap { language in
             language.languageCode.flatMap {
@@ -115,127 +107,6 @@ struct DiaryPageView: View {
             }
         }
         return names.isEmpty ? "部分语言的" : names.joined(separator: "、")
-    }
-
-    /// 成页预告，**仅 DEBUG**。
-    ///
-    /// 为什么从产品面撤下来（2026-08-29 用户实测判断）：
-    /// 原先是页面左上角渗出一团墨，越接近成页洇得越开。用户的反馈是「看上去真的很像个 bug」——
-    /// 一个淡淡的圆点出现在页边距、离你写字的地方半页远、只存在一秒半，
-    /// 看不出是提示，只看得出页面上多了个不该有的东西。
-    ///
-    /// 「可撤销预告」这个需求没有撤销（决策 17 要求猜错零代价可救），只是它的**正确形态
-    /// 取决于版式决定**：提示应该出现在魂即将落笔的地方，也就是你刚写完那句话旁边。
-    /// 版式还没定（见 `MEMORY.md` 待决项），所以现在不猜一个位置糊上去。
-    /// 在那之前 DEBUG 面用一条一眼看得懂的横幅代替，产品面什么都不显示。
-    private func commitHint(in size: CGSize) -> some View {
-        Text("DEBUG · 快要回应了 —— 现在写一笔可以取消")
-            .font(.system(.footnote, design: .monospaced))
-            .foregroundStyle(PageAppearance.paper)
-            .padding(.horizontal, PageAppearance.noticePadding)
-            .padding(.vertical, PageAppearance.noticePadding / 2)
-            .background(PageAppearance.ink.opacity(PageAppearance.debugBannerOpacity))
-            .padding(PageAppearance.pageMargin(for: size))
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            .allowsHitTesting(false)
-            .accessibilityLabel("日记页快要回应了，此刻再写一笔可以取消")
-    }
-
-    /// 成页之后的诚实提示。
-    ///
-    /// **这是开发期文案，接上 Oracle（计划 E6）后删除。** 留它的理由：
-    /// 成页预告渗出的墨会让人以为接着就有回应，而现在确实什么都不会来。
-    /// 什么都不说会像 bug，编一句世界观内的台词（「我在想…」）则是伪装成功——
-    /// 那正是 AGENTS.md 禁止的静默兜底。所以就说实话。
-    private func soulNotConnectedNotice(in size: CGSize) -> some View {
-        Text("这一页收下了。回应还没接上——魂（Oracle）尚未接入。")
-            .font(.footnote)
-            .foregroundStyle(PageAppearance.ink.opacity(PageAppearance.noticeInkOpacity))
-            .multilineTextAlignment(.center)
-            .padding(PageAppearance.pageMargin(for: size))
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            .allowsHitTesting(false)
-    }
-
-    /// 开发期读数：确认手写真的被读成了引擎能用的笔画，以及成页判断在按什么阈值走。
-    /// 仅 DEBUG，产品面不该有任何这类数字。
-    @ViewBuilder
-    private func strokeReadout(in size: CGSize) -> some View {
-        if let reading = model.reading {
-            Text(readoutText(reading))
-                .font(.system(.caption2, design: .monospaced))
-                .foregroundStyle(PageAppearance.ink.opacity(PageAppearance.noticeInkOpacity))
-                .padding(PageAppearance.pageMargin(for: size))
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
-                .allowsHitTesting(false)
-        }
-    }
-
-    private func readoutText(_ reading: PencilStrokeReading) -> String {
-        let force = reading.observedForceRange.map {
-            String(format: "%.3f…%.3f", $0.lowerBound, $0.upperBound)
-        } ?? "无"
-        let samples = reading.polylines.reduce(0) { $0 + $1.points.count }
-        let rhythm = reading.rhythm
-        let median = rhythm.medianPause.map { String(format: "%.2f", $0) } ?? "—"
-        let longest = rhythm.longestPause.map { String(format: "%.2f", $0) } ?? "—"
-
-        var lines = [
-            "DEBUG 读数",
-            "本轮笔数 \(reading.polylines.count)　采样点 \(samples)",
-            "力度 \(force)　有效压感 \(reading.hasVaryingForce ? "是" : "否")",
-            String(
-                format: "停顿 中位 %@s 最长 %@s　书写 %.1fs 落墨 %.1fs",
-                median, longest, rhythm.totalDuration, rhythm.inkDuration
-            ),
-            String(
-                format: "成页阈值 %.2fs　悬停 %@",
-                model.commitWaitLength,
-                model.isPencilHovering ? "是" : "否（本机硬件不支持）"
-            ),
-            // 阶段发布次数是查「笔画消失」的临时诊断（见 `DiaryPageModel` 文件头）。
-            // 一轮书写应该只有个位数；几十次说明高频重建回来了。确认修好后删掉。
-            "阶段 \(describe(model.phase))　阶段发布 \(model.phaseUpdateCount) 次",
-        ]
-
-        if let recognition = model.recognition {
-            let availability = recognition.availability
-            lines.append("识别语言 可用[\(describe(availability.active))]　缺失[\(describe(availability.unavailable))]")
-            if !availability.isUsable {
-                lines.append("识别不可用：本机没有任何请求语言的模型")
-            } else if let text = recognition.text, recognition.hasText {
-                lines.append("认出：\(text.replacingOccurrences(of: "\n", with: "⏎"))")
-            } else {
-                lines.append("认出：（无）——有可用语言但没认出内容")
-            }
-        } else {
-            lines.append("识别中…")
-        }
-
-        // 落笔前查到的语言状况（E4b 的信号来源）。和上面那条不同：
-        // 这一条不依赖有没有识别过，所以空白页上也看得见。
-        if let availability = model.recognitionAvailability {
-            lines.append("本机可读[\(describe(availability.active))]　读不出[\(describe(availability.unavailable))]")
-        } else {
-            lines.append("本机识别能力查询中…")
-        }
-
-        return lines.joined(separator: "\n")
-    }
-
-    private func describe(_ phase: DiaryPagePhase) -> String {
-        switch phase {
-        case .nothingNew: "这一轮没有新内容"
-        case .writing: "正在写"
-        case .waiting: "等你写完"
-        case .aboutToRespond: "预告中（再写一笔可取消）"
-        case .understanding: "正在读懂这一页"
-        case .awaitingSoul: "已收下（魂未接入）"
-        }
-    }
-
-    private func describe(_ languages: [Locale.Language]) -> String {
-        languages.isEmpty ? "—" : languages.map(\.minimalIdentifier).joined(separator: ",")
     }
 }
 
@@ -317,9 +188,8 @@ private struct ResponseLayoutPreview: View {
 ///
 /// 文字是假的，只存在于 Xcode 预览里。
 private struct GlyphStrokeReplayPreview: View {
-    /// 纯汉字：当前字形数据集不含标点与拉丁字母（属计划 E1c/E1d），
-    /// 用带标点的句子会看到缺字，反而看不清逐笔生长本身。
-    private static let sampleResponse = "我看见你今天写得很慢"
+    /// 中英混排 + 标点，覆盖三套字形数据（汉字数据文件、手写标点、手写拉丁字母）。
+    private static let sampleResponse = "我看见你写的 hello，慢一点。"
 
     @State private var model = DiaryPageModel()
     @State private var uncovered: [Character] = []
