@@ -135,12 +135,32 @@ nonisolated struct OracleRequestSettings: Equatable, Sendable {
     /// 单次请求超时（秒）。
     let timeout: TimeInterval
 
-    init(temperature: Double, maxTokens: Int, timeout: TimeInterval) {
+    /// 要不要让模型先「思考」一遍再回答。
+    ///
+    /// ── 为什么默认关（2026-09-01 实测决定）──
+    /// DeepSeek V4 这类模型默认开着思考模式：它先输出一段思维链（`reasoning_content`），
+    /// 再输出真正的回答（`content`）。对我们没有好处，有三个实测出来的坏处：
+    ///
+    /// 一、**会返回空回答。** 思维链也算 `max_tokens`。第一次实测给了 32，
+    ///    32 个 token 全烧在思考上，`content` 回来是空字符串、`finish_reason` 是 `length`。
+    /// 二、**贵六倍。** 同一个问题：关掉思考 prompt 14 token / 回答 3 token；
+    ///    开着思考 prompt 涨到 93（供应商会注入额外的系统内容）、回答 9。
+    /// 三、**慢。** 多一整段生成。
+    ///
+    /// 而我们要的「质量」是**克制**，不是推理正确性——一句 30 字的日记回应，
+    /// 想清楚了并不会更好。所以关。
+    ///
+    /// 这个开关表达的是**意图**（要不要思考过程）；具体怎么告诉供应商是
+    /// `ChatCompletionsOracle` 的事，因为各家的字段名不一样。
+    let wantsModelThinking: Bool
+
+    init(temperature: Double, maxTokens: Int, timeout: TimeInterval, wantsModelThinking: Bool) {
         precondition(temperature >= 0, "Temperature cannot be negative")
         precondition(maxTokens > 0, "Max tokens must be positive")
         precondition(timeout > 0, "Timeout must be positive")
         self.temperature = temperature
         self.maxTokens = maxTokens
         self.timeout = timeout
+        self.wantsModelThinking = wantsModelThinking
     }
 }

@@ -85,7 +85,7 @@ nonisolated final class OracleProviderTests: XCTestCase {
         ChatCompletionsOracle(
             endpoint: endpoint,
             systemPrompt: "你是这本日记。",
-            settings: OracleRequestSettings(temperature: 0.8, maxTokens: 200, timeout: 5),
+            settings: OracleRequestSettings(temperature: 0.8, maxTokens: 200, timeout: 5, wantsModelThinking: false),
             transport: transport
         )
     }
@@ -246,6 +246,61 @@ nonisolated final class OracleProviderTests: XCTestCase {
                 XCTFail("「\(junk)」应该报错")
             } catch {
                 XCTAssertNotNil(error as? OracleFailure, "「\(junk)」报的不是 OracleFailure")
+            }
+        }
+    }
+
+    /// 关掉思考模式时，请求里必须真的带上那个字段。
+    ///
+    /// 这条守着一件实测踩过的事：思考模式默认开着，思维链也算 `max_tokens`，
+    /// 于是 token 全烧在思考上、`content` 回来是空串。
+    func testThinkingIsDisabledInTheRequest() async throws {
+        let transport = FakeTransport(json: reply("在的。你呢？"))
+        _ = try await ask(makeOracle(transport))
+
+        let requests = await transport.sentRequests
+        let body = try XCTUnwrap(requests.first?.httpBody)
+        let payload = try XCTUnwrap(try JSONSerialization.jsonObject(with: body) as? [String: Any])
+        let thinking = try XCTUnwrap(payload["thinking"] as? [String: String])
+        XCTAssertEqual(thinking["type"], "disabled")
+    }
+
+    /// 要思考时就**不发**那个字段——有些实现对不认识的字段直接 400。
+    func testThinkingFieldIsOmittedWhenWanted() async throws {
+        let transport = FakeTransport(json: reply("在的。你呢？"))
+        let oracle = ChatCompletionsOracle(
+            endpoint: endpoint,
+            systemPrompt: "你是这本日记。",
+            settings: OracleRequestSettings(temperature: 0.8, maxTokens: 200, timeout: 5, wantsModelThinking: true),
+            transport: transport
+        )
+        _ = try await oracle.respond(to: OracleRequest(text: "今天有点累。", strokeCount: 5))
+
+        let requests = await transport.sentRequests
+        let body = try XCTUnwrap(requests.first?.httpBody)
+        let payload = try XCTUnwrap(try JSONSerialization.jsonObject(with: body) as? [String: Any])
+        XCTAssertNil(payload["thinking"], "要思考时不该发这个字段")
+    }
+
+    /// 被 token 上限截断要单独报，而且要提到思考模式——那是最可能的原因。
+    func testTruncatedAnswerIsReportedSpecifically() async {
+        // 情况一：截断且一个字都没留下（实测遇到过的那种）
+        let empty = FakeTransport(json: #"{"choices":[{"finish_reason":"length","message":{"content":""}}]}"#)
+        // 情况二：截断但有半句话
+        let half = FakeTransport(json: #"{"choices":[{"finish_reason":"length","message":{"content":"又是十点。牛奶的"}}]}"#)
+
+        for (transport, expectedWord) in [(empty, "思考模式"), (half, "半句话")] {
+            do {
+                _ = try await ask(makeOracle(transport))
+                XCTFail("截断应该报错")
+            } catch let failure as OracleFailure {
+                guard case .couldNotReach(let detail) = failure else {
+                    return XCTFail("应报 couldNotReach")
+                }
+                XCTAssertTrue(detail.contains("截断"), "没说被截断：\(detail)")
+                XCTAssertTrue(detail.contains(expectedWord), "提示里缺「\(expectedWord)」：\(detail)")
+            } catch {
+                XCTFail("类型不对：\(error)")
             }
         }
     }

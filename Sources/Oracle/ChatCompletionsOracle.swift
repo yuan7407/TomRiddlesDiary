@@ -134,13 +134,24 @@ nonisolated struct ChatCompletionsOracle: OracleProvider {
             ])
         }
 
-        let payload: [String: Any] = [
+        var payload: [String: Any] = [
             "model": endpoint.model,
             "messages": messages,
             "temperature": settings.temperature,
             "max_tokens": settings.maxTokens,
             "stream": false,
         ]
+
+        // 明确关掉思考模式。
+        //
+        // 这个字段不是 OpenAI 标准的一部分，是 DeepSeek 的扩展。放在这里而不是
+        // 无条件发送，因为**有些实现会对不认识的字段直接 400**。
+        // 为什么要关：见 `OracleRequestSettings.wantsModelThinking`（实测数据在那儿）。
+        // 换供应商时如果新那家不认这个字段，把配置里的 `wantsModelThinking` 改成 true
+        // 就不会发它了——但那样要连带把 maxTokens 放大，否则思维链会吃掉整个额度。
+        if !settings.wantsModelThinking {
+            payload["thinking"] = ["type": "disabled"]
+        }
 
         do {
             return try JSONSerialization.data(withJSONObject: payload)
@@ -164,16 +175,30 @@ nonisolated struct ChatCompletionsOracle: OracleProvider {
             throw OracleFailure.couldNotReach(detail: "服务端报错：\(message)")
         }
         guard let choices = root["choices"] as? [[String: Any]],
-              let message = choices.first?["message"] as? [String: Any],
+              let choice = choices.first,
+              let message = choice["message"] as? [String: Any],
               let content = message["content"] as? String
         else {
             throw OracleFailure.couldNotReach(detail: "响应里没有 choices[0].message.content")
         }
 
         let text = content.trimmingCharacters(in: .whitespacesAndNewlines)
-        // 空回应必须当失败。写一页空白比说「这次没成」更让人困惑。
+
+        // 被 token 上限截断要单独说。它和「网络不通」的修法完全不同：
+        // 要么放大 maxTokens，要么关掉思考模式（思维链也算 token）。
+        // 实测踩过：max_tokens 给 32、思考模式开着，32 个 token 全烧在思考上，
+        // content 回来是空串、finish_reason 是 length——只报「空内容」会让人查错方向。
+        let truncated = (choice["finish_reason"] as? String) == "length"
         guard !text.isEmpty else {
-            throw OracleFailure.couldNotReach(detail: "模型返回了空内容")
+            throw OracleFailure.couldNotReach(
+                detail: truncated
+                    ? "回答被 token 上限截断了，一个字都没留下（思维链也算 token，检查是否关了思考模式）"
+                    : "模型返回了空内容"
+            )
+        }
+        if truncated {
+            // 有内容但被截断：这段话是半截的，写到纸上就是一句没说完的话。
+            throw OracleFailure.couldNotReach(detail: "回答被 token 上限截断，是半句话，没有写上去")
         }
         return text
     }
