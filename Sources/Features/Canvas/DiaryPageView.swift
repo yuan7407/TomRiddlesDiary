@@ -116,67 +116,9 @@ struct DiaryPageView: View {
     DiaryPageView()
 }
 
-#Preview("回应渲染 · 字体版（E8 脚手架）") {
-    ResponseLayoutPreview()
-}
 
 #Preview("真笔画逐笔生长 + 落笔中断（E1 + E3d）") {
     GlyphStrokeReplayPreview()
-}
-
-/// 开发期预览：把回应层单独摆出来看排版、字号、行距与书写节奏。
-/// 这段文字是假的，只存在于 Xcode 预览里，不会进入运行的 App。
-private struct ResponseLayoutPreview: View {
-    private static let sampleResponse = """
-    我看见你今天写得很慢。
-    有些话不必写完，纸会替你记着。
-    Take your time.
-    """
-
-    @State private var laidOut: LaidOutText?
-    @State private var failure: String?
-    @State private var size: CGSize = .zero
-
-    var body: some View {
-        GeometryReader { geometry in
-            ZStack(alignment: .topLeading) {
-                PageAppearance.paper
-
-                if let failure {
-                    Text("排不出来：\(failure)")
-                        .font(.footnote)
-                        .foregroundStyle(PageAppearance.ink)
-                        .padding(PageAppearance.pageMargin(for: geometry.size))
-                } else if let laidOut {
-                    HandwrittenTextView(
-                        text: laidOut,
-                        glyphHeight: HandwritingFeel.referenceGlyphHeightInPoints,
-                        animated: true
-                    )
-                }
-            }
-            .onAppear { size = geometry.size }
-            .onChange(of: geometry.size) { _, new in size = new }
-        }
-        .ignoresSafeArea()
-        .task(id: size) {
-            guard size.width > 0, size.height > 0 else { return }
-            let margin = PageAppearance.pageMargin(for: size)
-            do {
-                laidOut = try TextLayout().layOut(
-                    Self.sampleResponse,
-                    configuration: TextLayoutConfiguration(
-                        glyphHeight: HandwritingFeel.referenceGlyphHeightInPoints,
-                        lineWidth: max(1, size.width - margin * 2),
-                        lineSpacingRatio: PageAppearance.lineSpacingRatio,
-                        origin: CGPoint(x: margin, y: margin)
-                    )
-                )
-            } catch {
-                failure = String(describing: error)
-            }
-        }
-    }
 }
 
 /// 开发期预览：**逐笔生长（E1）＋ 落笔中断（E3d）＋ 落点决策（E9e）**。
