@@ -491,11 +491,11 @@ final class DiaryPageModel {
     private func askSoul(strokeCount: Int) async {
         guard let oracle else {
             // 这个构建没有配 provider。Release 当前就是这种状态，如实说。
-            setPhase(.soulSilent(.notConfigured))
+            fallSilent(.notConfigured)
             return
         }
         guard let text = recognition?.text, recognition?.hasText == true else {
-            setPhase(.soulSilent(.nothingToSay))
+            fallSilent(.nothingToSay)
             return
         }
 
@@ -505,18 +505,25 @@ final class DiaryPageModel {
         do {
             spoken = try await oracle.respond(to: OracleRequest(text: text, strokeCount: strokeCount))
         } catch let failure as OracleFailure {
-            setPhase(.soulSilent(failure))
+            fallSilent(failure)
             return
         } catch {
             // 非 OracleFailure 的错误也不能吞掉。带上类型名供开发期定位，
             // 但不把原始错误文本给用户看——那里面可能有端点或请求细节。
-            setPhase(.soulSilent(.couldNotReach(detail: String(describing: type(of: error)))))
+            fallSilent(.couldNotReach(detail: String(describing: type(of: error))))
             return
         }
 
         // 用户在等回应的时候又落笔了：这一轮作废，不要抢他正在写的位置。
         // 判据是阶段已经不是「在问魂」了（`strokeBegan` 会把它改成 `.writing`）。
-        guard phase == .askingSoul else { return }
+        guard phase == .askingSoul else {
+            #if DEBUG
+            // 这条分支**静默返回**，纸上不会有任何变化。不打一行的话，
+            // 「为什么没回应」在日志里完全查不到——2026-09-01 就因为这个白查了一轮。
+            print("── 魂（E6a）── 回应到了，但你已经重新落笔（阶段 \(phase)），这一轮作废")
+            #endif
+            return
+        }
 
         await writeOnPage(spoken.text)
     }
@@ -527,7 +534,7 @@ final class DiaryPageModel {
             // 界面还没报过尺寸，定不了落点。这属于接线错误而不是运行时状况，
             // 所以如实报「送不出去」而不是硬用一个猜的页面大小——
             // 猜出来的落点会把回应画到纸外。
-            setPhase(.soulSilent(.couldNotReach(detail: "页面尺寸未知")))
+            fallSilent(.couldNotReach(detail: "页面尺寸未知"))
             return
         }
 
@@ -549,12 +556,54 @@ final class DiaryPageModel {
             uncoveredCharacters = composed.uncoveredCharacters
             beginReply(composed.sequence)
             setPhase(.replying)
+
+            #if DEBUG
+            // 成功也要打一行。
+            //
+            // 理由是 2026-09-01 那次白查出来的：**成功和「渲染层没画出来」在纸上
+            // 长得一模一样**（都是一片空白）。没有这一行就分不清「魂没说话」和
+            // 「魂说了但没画出来」，而两者的修法完全不同。
+            // 只在 DEBUG：它带着回应的文字，属日记内容（同 `debugRecognitionLine`
+            // 那次刻意破例，release 构建里这段代码不存在）。
+            print("""
+            ── 魂（计划 E6a）──
+            这段话：「\(text)」（\(text.count) 字，逐笔约 \(String(format: "%.1f", composed.sequence.totalDuration)) 秒）
+            落在：\(describe(composed.placement.slot))　行宽 \(Int(composed.placement.lineWidth)) 点
+            占地：左 \(Int(composed.placement.region.left)) 上 \(Int(composed.placement.region.top)) \
+            宽 \(Int(composed.placement.region.width)) 高 \(Int(composed.placement.region.height))
+            笔画：\(composed.sequence.strokes.count) 笔　→ 已交给渲染层开始写
+            \(composed.uncoveredCharacters.isEmpty ? "" : "⚠️ 写不出来的字：\(String(composed.uncoveredCharacters))")
+            """)
+            #endif
         } catch ReplyPlacementFailure.noRoomOnThisPage {
             // 这一页放不下了——该翻页（计划 E3f，还没做）。
             // 明确报出来而不是硬塞一个位置：硬塞的结果是回应压在用户的字上。
-            setPhase(.soulSilent(.couldNotReach(detail: "这一页放不下了，需要翻页（E3f 未实现）")))
+            fallSilent(.couldNotReach(detail: "这一页放不下了，需要翻页（E3f 未实现）"))
         } catch {
-            setPhase(.soulSilent(.couldNotReach(detail: String(describing: error))))
+            fallSilent(.couldNotReach(detail: String(describing: error)))
         }
     }
+
+    /// 魂说不出话，如实记下并显示。
+    ///
+    /// 收成一个方法是为了保证**每一条失败路径都会被打进日志**。
+    /// 分散着写 `setPhase(.soulSilent(...))` 的话，总会漏掉某一条，
+    /// 而漏掉的那条恰好就是查不出来的那次。
+    private func fallSilent(_ failure: OracleFailure) {
+        setPhase(.soulSilent(failure))
+        #if DEBUG
+        print("── 魂（计划 E6a）── 说不出话：\(failure)　纸上会显示：\(failure.sentenceForReader)")
+        #endif
+    }
+
+    #if DEBUG
+    private func describe(_ slot: ReplyPlacement.Slot) -> String {
+        switch slot {
+        case .rightOfWriting: "你那句话的右边"
+        case .belowWriting: "你那句话的下方"
+        case .scanned: "扫描出来的空位（右边和下方都放不下）"
+        case .startOfPage: "可书写区域左上角（这一轮没有可挨着的字）"
+        }
+    }
+    #endif
 }
