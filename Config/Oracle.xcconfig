@@ -1,0 +1,64 @@
+// Oracle.xcconfig — 魂（Oracle）的端点配置。**这个文件可以提交，里面不含密钥。**
+//
+// 它的作用是把「调哪个模型、什么端点」变成配置而不是代码里的字面量（决策 4）。
+// 真正的 API key 在同目录的 Secrets.xcconfig，那个文件被 .gitignore 挡住。
+//
+// ── 只挂在 Debug 配置上 ──
+// 工程里只有 App target 的 Debug 配置引用本文件。Release 配置**根本读不到它**，
+// 所以分发出去的包里不存在任何 key——不是「藏得好」，是没有。
+// 本地 Debug 包仍然是可提取的（App 就是个 zip，字符串能 strings 出来），
+// 所以那种包永不分发。正式分发必须换成安全后端（计划 G），客户端只调自己的后端。
+//
+// ── 为什么不写完整的 URL（这是个真陷阱）──
+// xcconfig 里 `//` 是注释符。写 `ORACLE_BASE_URL = https://api.deepseek.com`
+// 的结果是这个值变成 `https:`，后面全被当注释吃掉——不报错，只是端点悄悄错了。
+// 所以拆成 host 与 path 两个值，两者都不含 `//`。
+//
+// ── 为什么 https 写死在代码里而不做成配置 ──
+// 因为它是安全约束，不是可选项：API key 会放在请求头里，走 http 等于把 key 明文
+// 广播出去。做成配置就意味着有人可以把它改错。
+
+// 主机名。也可以带路径前缀（有些供应商的兼容模式端点是 host + 固定前缀）。
+ORACLE_HOST = api.deepseek.com
+
+// 对话接口的路径。DeepSeek 用的是 OpenAI 兼容格式。
+ORACLE_CHAT_PATH = /v1/chat/completions
+
+// 模型名。**必须按你账号页面上的实际可用模型填**，不要凭记忆或抄别人的博客。
+// 2026-09-01 查官方文档（api-docs.deepseek.com）：当前是 deepseek-v4-flash
+// 与 deepseek-v4-pro；旧的 deepseek-chat / deepseek-reasoner 别名已退役。
+// 这里给的是默认值，你在 Secrets.xcconfig 里可以覆盖。
+ORACLE_MODEL = deepseek-v4-flash
+
+// 默认空。填在 Secrets.xcconfig 里，下面那行 include 会覆盖它。
+// 空值的含义是「这个构建没有配 provider」，App 会如实说魂接不上，不会假装在思考。
+ORACLE_API_KEY =
+
+// 用 `#include?`（带问号）而不是 `#include`：Secrets.xcconfig 是 gitignored 的，
+// 新克隆的仓库里不存在它。用不带问号的 include 会让**任何没有这个文件的人构建失败**，
+// 包括 CI。带问号表示「有就读，没有就算了」。
+#include? "Secrets.xcconfig"
+
+// 把值送进 App 能读到的地方：一份只含这四个键的 Info.plist 底稿。
+// Xcode 会把它自动生成的那批键合并到这份底稿之上（GENERATE_INFOPLIST_FILE 仍是 YES）。
+//
+// 走过一次弯路，记下来免得再试：我原本用 `INFOPLIST_KEY_OracleHost = ...`
+// 这种构建设置，以为任意 `INFOPLIST_KEY_<名字>` 都会进 Info.plist。**实测不会**——
+// 那套机制只认 Xcode 文档化的那批键，自定义键被静默忽略：构建成功、plist 里啥都没有。
+//
+// 因为这一行写在本文件里、而本文件只挂在 Debug 配置上，所以 Release 构建
+// 根本不会用到那份底稿，生成的 Info.plist 里连键名都不会出现。
+INFOPLIST_FILE = Config/Info.plist
+
+// ── 关掉构建脚本沙箱（只影响 Debug）──
+// 「拷人设（仅 Debug）」那个构建阶段要从 SRCROOT 读 `Config/Persona.local.json`，
+// 而 Xcode 默认给构建脚本开沙箱，只允许访问**声明过的输入文件**，否则报
+// `cp: Operation not permitted`（实测踩过）。
+//
+// 正常的做法是把那个文件声明成 inputPaths。这里不能那么做：
+// 那个文件是 gitignored 的，新克隆的仓库里不存在，而声明成输入之后
+// **文件不存在就直接构建失败**——包括 CI 和任何还没配人设的人。
+//
+// 所以改成关掉沙箱。代价可控，因为这一行写在本文件里，而本文件只挂在 Debug 配置上：
+// **Release 构建的脚本沙箱照旧开着。**
+ENABLE_USER_SCRIPT_SANDBOXING = NO

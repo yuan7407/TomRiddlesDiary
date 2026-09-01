@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Info.plist 底稿 —— 只放「魂要调哪个端点」这几个值，其它键仍由 Xcode 自动生成
+  （工程的 GENERATE_INFOPLIST_FILE 保持 YES，Xcode 会把生成的键合并到本文件之上）。
+
+  ── 为什么需要这个文件（2026-09-01，走过一次弯路）──
+  第一版我用 `INFOPLIST_KEY_OracleHost = ...` 这种构建设置，以为 Xcode 会把任意
+  `INFOPLIST_KEY_<名字>` 写进生成的 Info.plist。**实测不会**：那套机制只认 Xcode
+  自己文档化的那批键（相机权限说明、启动屏之类），自定义键会被静默忽略——
+  构建成功、Info.plist 里什么都没有。所以改成这个受支持的办法。
+
+  ── 安全性质（这是本文件的关键）──
+  `INFOPLIST_FILE` 这个设置写在 `Config/Oracle.xcconfig` 里，而那个 xcconfig
+  **只挂在 App target 的 Debug 配置上**。所以：
+  · Debug 构建：下面四个键会带着实际值进 Info.plist
+  · Release 构建：根本不会用到本文件，生成的 Info.plist 里连键名都没有
+  也就是说分发出去的包里**不存在**任何 key，不是藏得好，是没有。
+
+  值里的 `$(...)` 由 Xcode 在构建时替换成对应的构建设置。
+-->
+<plist version="1.0">
+<dict>
+	<key>OracleHost</key>
+	<string>$(ORACLE_HOST)</string>
+	<key>OracleChatPath</key>
+	<string>$(ORACLE_CHAT_PATH)</string>
+	<key>OracleModel</key>
+	<string>$(ORACLE_MODEL)</string>
+	<key>OracleAPIKey</key>
+	<string>$(ORACLE_API_KEY)</string>
+</dict>
+</plist>

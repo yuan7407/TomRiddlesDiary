@@ -72,6 +72,13 @@ nonisolated enum OracleFailure: Error, Equatable, Sendable {
     /// 请求发出去了但没拿回可用的回应。`detail` 只用于开发期定位，不给用户看原文。
     case couldNotReach(detail: String)
 
+    /// 魂说漏嘴，把自己的技术身份说出来了（决策 69）。
+    ///
+    /// 单独一种而不是并进 `couldNotReach`，因为处置完全不同：
+    /// 这不是网络或配置问题，是 **system prompt 没管住模型**，要改的是 prompt。
+    /// 带上泄漏的那个词，因为「泄漏了」三个字对定位毫无帮助。
+    case brokeCharacter(leaked: String)
+
     /// 给用户看的一句话。**世界观内的说法，但不掩盖「这是技术故障」这个事实。**
     var sentenceForReader: String {
         switch self {
@@ -81,6 +88,8 @@ nonisolated enum OracleFailure: Error, Equatable, Sendable {
             "这一页没读出字来，所以没什么可回的。"
         case .couldNotReach:
             "这一次没能把你写的话送出去。纸留着，可以再试。"
+        case .brokeCharacter:
+            "这一次的回应不像是从这本日记里来的，所以没有写上去。纸留着。"
         }
     }
 }
@@ -114,4 +123,24 @@ nonisolated protocol OracleProvider: Sendable {
 /// provider 本来就该能在任意线程上被问话。
 nonisolated extension OracleProvider {
     var producesCannedReplies: Bool { false }
+}
+
+/// 一次请求的参数。集中在 `InteractionSettings`，不散落在 provider 里（决策 4）。
+nonisolated struct OracleRequestSettings: Equatable, Sendable {
+    /// 采样温度。
+    let temperature: Double
+    /// 回应的 token 上限。**兜底不是手段**——真正约束长度的是 system prompt，
+    /// 因为被 token 上限砍断的是半句话，比长更糟。
+    let maxTokens: Int
+    /// 单次请求超时（秒）。
+    let timeout: TimeInterval
+
+    init(temperature: Double, maxTokens: Int, timeout: TimeInterval) {
+        precondition(temperature >= 0, "Temperature cannot be negative")
+        precondition(maxTokens > 0, "Max tokens must be positive")
+        precondition(timeout > 0, "Timeout must be positive")
+        self.temperature = temperature
+        self.maxTokens = maxTokens
+        self.timeout = timeout
+    }
 }

@@ -216,18 +216,12 @@ final class DiaryPageModel {
         self.composer = composer
     }
 
-    /// 这个构建默认用哪个魂。
+    /// 这个构建默认用哪个魂。判断全在 `OracleAssembly` 里，这里只是转发。
     ///
-    /// **DEBUG 用假的，Release 什么都没有。** 这不是「用 Mock 冒充成功」——
-    /// 真 provider 还不存在（安全后端属计划 G），所以 Release 里魂确实接不上，
-    /// 界面会如实说。而开发期需要一个能跑的东西，否则落点、排版、手绘化、
-    /// 逐笔重播这四步永远只能在 Xcode 预览里看。
+    /// 三种情况：配好了用真的；没配好但是 DEBUG 用假的（纸上会说明是假的）；
+    /// 没配好且是 Release 就什么都不用，界面如实说魂接不上。
     nonisolated static var defaultOracle: OracleProvider? {
-        #if DEBUG
-        MockOracleProvider()
-        #else
-        nil
-        #endif
+        OracleAssembly.makeProvider()
     }
 
     // MARK: 版式（回应写在哪）

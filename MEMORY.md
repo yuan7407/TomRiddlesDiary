@@ -9,9 +9,9 @@
 - **App 跑起来的真实样子**：一张能写字的纸，零按钮；停笔后成页并识别；**DEBUG 里魂会用写死的假文字真的回你**（挨着你刚写的那句话，逐笔长出来）；Release 里纸上如实说魂还没接上。DEBUG 构建会往控制台打 A10 校准报告与识别结果，release 里这两段代码不存在。
 - **引擎**：`StrokePipeline → StrokeHumanizer → StrokeReplayTimeline`，入口只吃 `[Polyline]`。两个真实生产者都已就位：`PencilStrokeReader`（用户手写）与 `GlyphStrokeLayout`（字形笔顺）。渲染层是 `Features/Response/HandwritingReplayView`，入参 `ReplayPlayback` 三态，坐标 1:1。
 - **单位契约（D1/D2）**：坐标一律页面点；**只有字高用毫米**（默认 9 mm ≈ 46.8 pt），其余全是字高的比例。`Configuration/` 下四个文件是经验性常量的唯一定义处：`PageMetrics`（唯一毫米↔点换算）、`HandwritingFeel`、`PageAppearance`、`InteractionSettings`。引擎已无默认参数。
-- **验证**：291 个 XCTest 在 iOS 26.5 与 27.0 两个模拟器上都通过（26 上 4 条识别用例如实跳过）。测试必须加 `-parallel-testing-enabled NO`，构建须用 Xcode 27（`DEVELOPER_DIR` 指定，不改全局 `xcode-select`）。
+- **验证**：315 个 XCTest 在 iOS 26.5 与 27.0 两个模拟器上都通过（26 上 4 条识别用例如实跳过）。测试必须加 `-parallel-testing-enabled NO`，构建须用 Xcode 27（`DEVELOPER_DIR` 指定，不改全局 `xcode-select`）。
 - **未接入**：Oracle、任何网络或密钥、加密存储、后端、TestFlight。
-- **目录**：`Sources/` 下 `Configuration / Features(Canvas·Response) / Handwriting / StrokeEngine / Oracle / Calibration / Resources` + 入口；根目录另有 `C1-response-quality-set.md`（模型评测数据，不是第四份文档）。
+- **目录**：`Sources/` 下 `Configuration / Features(Canvas·Response) / Handwriting / StrokeEngine / Oracle / Calibration / Resources` + 入口。`Config/` 下 `Oracle.xcconfig`（可提交、端点默认值）+ `Secrets.xcconfig`（gitignored、只放 key）+ `Info.plist`（Debug 底稿）+ `Persona.local.json`（gitignored、内部占位人设）；根目录另有 `C1-response-quality-set.md`（模型评测数据，不是第四份文档）。
 
 ## 决策表
 
@@ -62,6 +62,10 @@
 | 67 | 危机场景：救助信息**不进魂的嘴**（2026-09-01 用户拍板） | 魂留在世界观里，短、接住、不提号码不追问；**求助途径由纸之外的一层普通系统界面给**，明显不属于这个世界 | 用户原话「魔法世界里不要出现危机场景」。让魂背诵热线号码有两个毛病：把世界观撕开（那一刻它不再是那本日记），以及 70 字逐笔要写一分钟（让处在那种状态的人等一分钟才看到电话是坏设计）。改成分层之后三件事同时成立：不回避、不破坏魔法、不用等。**这不是取消危机处理**——把救助路径整个去掉不做，日记产品一定会遇到这种输入。改的只是由谁说、在哪说。顺带解决了 E6b 的时长问题 |
 | 68 | E6c：不动书写速度（2026-09-01 用户实跑后拍板） | 25–40 字的回应长度与当前书写速度都保持不变 | 用户在模拟器上实际看了 17.9 秒和 28.5 秒两段，结论「看着还行」。**注意被验证的是「排出来的时长可接受」，不是 7.5 字高/秒这个参数**——参数仍无真人笔迹依据 |
 | 69 | 魂不能说自己是哪个模型（E6d 的硬要求） | 三层：①persona 与 system prompt 集中在 gitignored 的 `Config/Persona.local.json`（不散落在业务代码，`AGENTS.md` 的 persona 隔离要求）②prompt 里对「你是谁」单列一条规则 ③**本地兜底检查**：回应里出现供应商/模型名就当这次失败，重试一次，再失败走诚实提示——**不许悄悄改写模型的话**（那是伪造） | 用户问「who are you」时模型回「我是 DeepSeek v4」会当场毁掉世界观。而单靠 system prompt 不可靠：直接问身份是模型最容易泄底的场景。另一条红线：persona 可以有名字、但**不许冒充人类**（`AGENTS.md` 要求 AI 披露清楚、世界观不得掩盖非人身份）。还有一条 IP 红线：「Tom Riddle」只是内部占位（门禁把它列为警告项），**绝不能进分发面**，商业版必须原创 persona（决策 6） |
+
+| 70 | key 怎么进 App（E6d 落地方式，已实测核对） | `Config/Secrets.xcconfig`（gitignored）→ `Config/Oracle.xcconfig`（可提交，用 `#include?` 可选引入）→ `Config/Info.plist` 底稿 → 运行时 `Bundle.object(forInfoDictionaryKey:)`。**那个 xcconfig 只挂在 App target 的 Debug 配置上** | 已实测核对两件事：Debug 包的 Info.plist 里有那四个键；**Release 包里连键名都没有**。所以分发包里不存在 key，不是藏得好是没有。走过两个弯路：一、`INFOPLIST_KEY_<自定义名>` **不进** Info.plist（Xcode 只认它文档化的那批键），构建成功但 plist 里啥都没有；二、xcconfig 里 `//` 是注释符，写 `https://host` 会让值变成 `https:`，所以拆成 host + path，https 写死在代码里（那是安全约束不是配置项） |
+| 71 | 人设怎么进 App | 构建脚本在 **Debug** 时把 `Persona.local.json` 拷进包；Release 不拷。另有 `debugOnly` 字段做第二道闸门：标了它的人设在 Release 里**加载直接失败** | 当前人设是内部 IP 占位，绝不能进分发面，而「记得别在 Release 里用」靠人记不可靠。两道闸门：文件不进包、就算进了也加载不了。副作用一个：构建脚本被 Xcode 的脚本沙箱挡住（`Operation not permitted`），只能在那个 Debug-only 的 xcconfig 里关掉沙箱——**Release 的沙箱照旧开着**（已用 `-showBuildSettings` 核对：Debug=NO、Release=YES） |
+| 72 | 人设取 Riddle 的**声音**，不取他的**意图** | 语气：安静、准确、略微老派、克制、在意。明确禁止：奉承、套近乎、打探他没主动写的事、利用他写下的软弱 | 原著里那本日记是**先讨好再利用**的——对一个真的在纸上写脆弱的人这么干是实实在在的伤害，而且和 C1 的要求正面冲突（接住情绪、不操纵、危机场景要认真）。但**克制本身就是 Riddle 式的**：他不热情、不啰嗦，是安静而专注的。所以取声音不取意图不是妥协，是对这个角色**举止**的准确读法，正好和 C1 的「克制」对齐 |
 
 已排除（实现过或讨论过，已删且不留死代码）：位图抽骨架路线、Python 位图/向量对比 spike、预制笔画母题库（组合太少）、图像生成与图像回应、Magic Stroke Lab 与离线夹具、渲染层的自动缩放与卡片外观。
 
