@@ -30,6 +30,13 @@ import SwiftUI
 
 /// 用户手写的画布。
 struct HandwritingCanvas: UIViewRepresentable {
+    /// 这一页该显示哪份手写内容。
+    ///
+    /// 翻页时（计划 E3f）由上层换成新页的 drawing。**必须由外部提供**：
+    /// `PKCanvasView` 自己不知道「页」这个概念，翻页对它就是换一份 drawing。
+    /// 不换的话翻页之后旧页的字还留在画布上，而它属于上一页。
+    let drawing: PKDrawing
+
     /// 笔刚落到纸上。
     let onStrokeBegan: () -> Void
 
@@ -63,6 +70,7 @@ struct HandwritingCanvas: UIViewRepresentable {
         canvas.maximumZoomScale = 1
         canvas.bouncesZoom = false
 
+        canvas.drawing = drawing
         canvas.drawingPolicy = InteractionSettings.drawingPolicy
         canvas.tool = PKInkingTool(
             .pen,
@@ -89,6 +97,16 @@ struct HandwritingCanvas: UIViewRepresentable {
         context.coordinator.onStrokeBegan = onStrokeBegan
         context.coordinator.onStrokeFinished = onStrokeFinished
         context.coordinator.onPencilHoverChanged = onPencilHoverChanged
+
+        // 只在真的不一样时才赋值。
+        //
+        // **这一条不是优化，是必须的**：每次视图更新都写一遍 `canvas.drawing`
+        // 会让 PencilKit 重建整个墨迹层，用户正在写的那一笔会被打断。
+        // 这和 2026-08-29 那个「笔画写完就消失」是同一类错误
+        // （见 `DiaryPageModel` 文件头：高频赋值给会触发重绘的东西）。
+        if canvas.drawing != drawing {
+            canvas.drawing = drawing
+        }
     }
 
     func makeCoordinator() -> Coordinator {

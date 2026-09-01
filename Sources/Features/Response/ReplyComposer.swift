@@ -110,7 +110,10 @@ nonisolated struct ReplyComposer: Sendable {
         let sequence = pipeline.process(
             laidOut.polylines,
             configuration: HandwritingFeel.humanizerConfiguration(referenceScale: glyphSize),
-            seed: seed
+            seed: seed,
+            // 魂写字比真人快（用户拍板 1.5 倍）。整体缩放而不是调书写速度，
+            // 理由见 `HandwritingFeel.soulWritesFasterThanHumanBy`。
+            timeScale: HandwritingFeel.soulWritesFasterThanHumanBy
         )
 
         return ComposedReply(

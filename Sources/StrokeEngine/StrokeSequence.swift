@@ -106,6 +106,32 @@ nonisolated struct StrokeSequence: Equatable, Sendable {
         strokes.reduce(into: 0) { $0 += $1.totalDuration }
     }
 
+    /// 整段按同一个倍数加快或放慢。
+    ///
+    /// ── 为什么用一个整体倍数，而不是去调「书写速度」那个参数 ──
+    /// 一段回应的时长由三样东西加起来：落墨（由书写速度决定）、笔间抬笔移动
+    /// （由跳跃距离 ÷ 空中速度决定）、每次抬落笔的固定耗时。
+    /// 只把书写速度乘 1.5，固定耗时那部分**不会跟着变**——实测一段 189 笔的回应里
+    /// 固定耗时占了约 9 秒 / 37 秒，所以整体只快一点点，而且**三者的比例被改了**，
+    /// 那是在改手感，不是在改速度。
+    ///
+    /// 整体缩放保住所有比例：相对停顿、起收笔加减速、抖动波长与速度的关系全部不变，
+    /// 只是同一支笔写得更快。
+    ///
+    /// - Parameter factor: 大于 1 表示更快。
+    func timeScaled(by factor: Double) -> StrokeSequence {
+        precondition(factor > 0, "Time scale must be positive")
+        guard factor != 1 else { return self }
+
+        return StrokeSequence(strokes: strokes.map { stroke in
+            TimedStroke(
+                samples: stroke.samples,
+                duration: stroke.duration / factor,
+                pauseBefore: stroke.pauseBefore / factor
+            )
+        })
+    }
+
     /// 剥掉时间信息，只留几何——**整段**的，不管播到哪儿。
     ///
     /// 用于「这段回应最终会占多大」这类问题。要问「此刻纸上真的有墨的地方」
