@@ -149,21 +149,27 @@ final class DiaryPageModel {
     /// 魂**正在写**的那段回应。写完或被新的一段接替后会移进 `settledReplies`。
     private(set) var reply: ReplyOnPage?
 
-    /// 魂已经写下、并且定格留在页上的那些回应。
+    /// 整本日记。翻页与「哪一页上有什么」都在里面（计划 E3f）。
+    private(set) var book = DiaryBook()
+
+    /// 魂在**当前页**上已经定格的那些回应。
     ///
-    /// ── 为什么必须有它（2026-09-01 实测出来的 bug）──
-    /// 原先只有 `reply` 一个位置，`beginReply` 直接替掉上一段。实测的症状是：
-    /// 写第二句话、收到第二段回应时，**第一段回应从纸上凭空消失了**。
-    /// 纸上的东西不该自己消失——这是这个产品最基本的约定（决策 14 的同一个道理）。
+    /// ── 为什么必须留着（2026-09-01 实测出来的 bug）──
+    /// 原先只有 `reply` 一个位置，`beginReply` 直接替掉上一段，症状是
+    /// 写第二轮时第一轮的回应**从纸上凭空消失了**。纸上的东西不该自己消失
+    /// （决策 14 的同一个道理）。
     ///
     /// 定格时保留它当时的播放状态，而不是一律按「写完」：
-    /// 被用户打断的那段就该停在半截字上（决策 14），不能因为「要留下来」就自己补完。
+    /// 被用户打断的那段就该停在半截字上（决策 14）。
     ///
-    /// 已知的下一步：按决策 18，写完的笔画最终要**落定进 `PKDrawing`**，
-    /// 这样用户能用系统橡皮擦掉它。现在还没做，因为那会让魂写的字混进
-    /// 「这一轮用户写了什么」的判断里（轮次按落笔时刻切，魂的笔画时刻也是「现在」），
-    /// 得先解决那个冲突。属计划 E3g。
-    private(set) var settledReplies: [ReplyOnPage] = []
+    /// 已知的下一步（计划 E3g）：按决策 18，写完的笔画最终要**落定进 `PKDrawing`**，
+    /// 这样用户能用系统橡皮擦掉它。卡在一个真冲突上：轮次按落笔时刻切，
+    /// 而魂的笔画时刻也是「现在」，直接塞进去会让魂读到自己写的话。
+    var settledReplies: [ReplyOnPage] { book.current.settledReplies }
+
+    /// 翻到新一页时递增。界面用它触发翻页动画，也用它强制重建画布
+    /// （`PKCanvasView` 要换掉整份 drawing）。
+    private(set) var pageTurnCount = 0
 
     /// 笔是否悬在纸上。硬件不支持悬停时恒为 false（模拟器与 iPad 10 都不支持），
     /// 成页判断走没有悬停的那条路径，不需要兜底。
@@ -187,8 +193,7 @@ final class DiaryPageModel {
     /// 最后一次抬笔的时刻，单调时钟。nil 表示笔正在纸上或还没写过。
     private var lastLift: ContinuousClock.Instant?
 
-    /// 最近一次抬笔时的整页内容。成页时要用它做最后一次识别。
-    private var lastDrawing: PKDrawing?
+
 
     /// 上一轮成页时的分界时刻（计划 E3e）。晚于它落笔的才算「这一轮新写的」。
     /// nil 表示还没成过页，整页都算这一轮。
@@ -252,10 +257,8 @@ final class DiaryPageModel {
                 lineSpacingRatio: PageAppearance.lineSpacingRatio
             )
         )
-        // 整页的用户笔画，不是这一轮的——之前几轮写的字同样占地方。
-        if let drawing = lastDrawing {
-            map.mark(reader.read(drawing).polylines)
-        }
+        // 当前页的全部用户笔画，不只是这一轮——之前几轮写的字同样占地方。
+        map.mark(reader.read(book.current.drawing).polylines)
         // 魂自己写过的每一段也要算。标的是 `drawnPolylines`（此刻真的有墨的部分）
         // 而不是整段几何：一段被打断的回应停在半截字上，它「本来要写到的地方」
         // 其实是空白纸，用整段几何标会让后面的回应绕开一片其实空着的地方。
@@ -306,7 +309,7 @@ final class DiaryPageModel {
     /// 注意读的是**这一轮**而不是整页（计划 E3e）。除了避免把旧内容重复交给 Oracle，
     /// 还有一个好处：书写节奏也变成这一轮的节奏，成页阈值不会被上一轮的停顿污染。
     func strokeFinished(_ drawing: PKDrawing) {
-        lastDrawing = drawing
+        book.current.drawing = drawing
 
         let round = WritingRound.drawing(of: drawing, after: committedBoundary)
         reading = reader.read(round)
@@ -380,7 +383,7 @@ final class DiaryPageModel {
         let elapsed = current.playback.elapsedSeconds(
             totalDuration: current.sequence.totalDuration
         )
-        settledReplies.append(ReplyOnPage(
+        book.current.settledReplies.append(ReplyOnPage(
             sequence: current.sequence,
             playback: .frozen(atElapsed: elapsed)
         ))
@@ -497,7 +500,7 @@ final class DiaryPageModel {
     ///
     /// 识别范围是**这一轮**，不是整页（计划 E3e）。
     private func commit() async {
-        guard let drawing = lastDrawing else { return }
+        let drawing = book.current.drawing
 
         let round = WritingRound.drawing(of: drawing, after: committedBoundary)
         // 这一轮空了（成页判断跑完之前被擦干净）就直接说没有新内容，
@@ -623,11 +626,60 @@ final class DiaryPageModel {
             """)
             #endif
         } catch ReplyPlacementFailure.noRoomOnThisPage {
-            // 这一页放不下了——该翻页（计划 E3f，还没做）。
-            // 明确报出来而不是硬塞一个位置：硬塞的结果是回应压在用户的字上。
-            fallSilent(.couldNotReach(detail: "这一页放不下了，需要翻页（E3f 未实现）"))
+            // 这一页放不下了 → 翻页，在新的一页上写（计划 E3f，决策 33）。
+            //
+            // 翻页的判据就是这里：**落点决策找不到空位**。
+            // 不用「occupancy 超过百分之几」那种判据——真正要紧的不是纸上有多少墨，
+            // 而是「这段话还放得下吗」，而一段 30 字和一段 3 字的回应对空间的要求差很多。
+            await turnPageAndWrite(text)
         } catch {
             fallSilent(.couldNotReach(detail: String(describing: error)))
+        }
+    }
+
+    /// 翻到新一页，在那一页上写这段回应（计划 E3f）。
+    ///
+    /// 只试一次就翻一次页。**不循环重试**：如果一段回应在一张全新的空白纸上
+    /// 都放不下，那它长得离谱，翻一百页也一样——循环只会翻出一叠空白页。
+    /// 那种情况如实报错。
+    private func turnPageAndWrite(_ text: String) async {
+        // 当前这段（如果有）先定格在旧页上，别跟着翻过去。
+        settleCurrentReply()
+
+        book.turnToNextPage()
+        pageTurnCount += 1
+        // 新的一页上没有「这一轮写的字」可以挨着，也没有已收下的分界点可言。
+        // 分界点推进到现在：新页从零开始。
+        committedBoundary = Date()
+        reading = nil
+
+        #if DEBUG
+        print("── 翻页（计划 E3f）── 这一页放不下了，翻到第 \(book.currentIndex + 1) 页")
+        #endif
+
+        guard let writableArea else {
+            fallSilent(.couldNotReach(detail: "页面尺寸未知"))
+            return
+        }
+        let glyphSize = HandwritingFeel.referenceGlyphHeightInPoints
+
+        do {
+            let composed = try composer.compose(
+                text,
+                glyphSize: glyphSize,
+                lineSpacingRatio: PageAppearance.lineSpacingRatio,
+                // 新页是空的，没有可挨着的字，所以从可书写区域左上角写起。
+                after: nil,
+                on: inkMap(writableArea: writableArea, glyphSize: glyphSize),
+                seed: HandwritingFeel.defaultSeed &+ replyRound
+            )
+            replyRound &+= 1
+            uncoveredCharacters = composed.uncoveredCharacters
+            beginReply(composed.sequence)
+            setPhase(.replying)
+        } catch {
+            // 一张空白纸都放不下，说明这段话长得离谱。如实报，不再翻页。
+            fallSilent(.couldNotReach(detail: "翻到新一页也放不下这段回应：\(error)"))
         }
     }
 

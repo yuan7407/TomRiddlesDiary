@@ -44,6 +44,7 @@ struct DiaryPageView: View {
             ZStack(alignment: .topLeading) {
                 // 画布自带纸色，因此它就是这一页的纸。
                 HandwritingCanvas(
+                    drawing: model.book.current.drawing,
                     onStrokeBegan: { model.strokeBegan() },
                     onStrokeFinished: { model.strokeFinished($0) },
                     onPencilHoverChanged: { model.hoverChanged($0) }
@@ -91,12 +92,59 @@ struct DiaryPageView: View {
             }
             // 可书写区域由这里算（页边距是视图尺寸的函数，模型不认识视图）。
             // 没有它魂定不了落点，所以一有尺寸就要报过去。
+            .animation(pageTurn, value: model.pageTurnCount)
             .onAppear { reportPageArea(geometry.size) }
             .onChange(of: geometry.size) { _, new in reportPageArea(new) }
         }
         .ignoresSafeArea()
         .accessibilityLabel("日记页")
         .task { await model.loadRecognitionAvailability() }
+    }
+
+    /// 这一页的纸：用户的画布 + 魂写在这一页上的字。
+    ///
+    /// 抽成一块是为了让它整体参与翻页动画——两层必须一起走。
+    @ViewBuilder
+    private var paper: some View {
+        ZStack(alignment: .topLeading) {
+            // 画布自带纸色，因此它就是这一页的纸。
+            HandwritingCanvas(
+                drawing: model.book.current.drawing,
+                onStrokeBegan: { model.strokeBegan() },
+                onStrokeFinished: { model.strokeFinished($0) },
+                onPencilHoverChanged: { model.hoverChanged($0) }
+            )
+
+            // 魂已经写下、定格留在这一页上的那些。纸上的东西不该自己消失——
+            // 2026-09-01 之前只画「正在写的那一段」，于是第二段一开始写、
+            // 第一段就从纸上消失了。
+            ForEach(Array(model.settledReplies.enumerated()), id: \.offset) { _, settled in
+                HandwritingReplayView(sequence: settled.sequence, playback: settled.playback)
+                    .allowsHitTesting(false)
+            }
+
+            if let reply = model.reply {
+                HandwritingReplayView(sequence: reply.sequence, playback: reply.playback)
+                    .allowsHitTesting(false)
+            }
+        }
+    }
+
+    /// 翻页动画的时长与曲线（计划 E3f，决策 33）。
+    ///
+    /// ── 为什么是滑动而不是 3D 翻卷 ──
+    /// 翻卷（page curl）在 SwiftUI 里要自己做三维变换与阴影，是一整块活；
+    /// 而它要传达的信息只有一个：**这一页结束了，换了一张新的纸**。
+    /// 横向滑动把这件事说清楚了，代价是十几行。真正的翻卷记为 E3f-2，
+    /// 等这一版的手感被实际用过之后再决定值不值得做。
+    ///
+    /// ── 为什么不做「翻页提示」──
+    /// 用户明确要求纸上零控件。翻页本身就是提示：纸滑走了，你就知道换页了。
+    /// 决策 33 里提的「DEBUG 提示」由控制台那行日志承担。
+    private var pageTurn: Animation {
+        // 0.45 秒：比一般界面转场慢一点。纸是有重量的东西，翻得太快像切页不像翻页。
+        // 这个值是手感选择，没有测量依据。
+        .easeInOut(duration: 0.45)
     }
 
     private func reportPageArea(_ size: CGSize) {

@@ -23,11 +23,18 @@ nonisolated struct StrokePipeline: Sendable {
     ///     调用方负责保证笔顺就是希望的书写顺序。
     ///   - configuration: 手绘化参数。尺度相关字段必须已按参照尺度换算成页面点。
     ///   - seed: 随机种子。同一输入配同一种子必然得到同一结果，手感回归测试依赖这一点。
+    /// - Parameter timeScale: 整段时长的倍数，大于 1 表示写得更快。
+    ///   默认 1（原速）——**引擎不替调用方决定魂该写多快**，那是产品选择。
+    ///   实际值由 `HandwritingFeel.soulWritesFasterThanHumanBy` 提供，
+    ///   在装配层（`ReplyComposer`）传进来。
     func process(
         _ polylines: [Polyline],
         configuration: HumanizerConfiguration,
-        seed: UInt64
+        seed: UInt64,
+        timeScale: Double = 1
     ) -> StrokeSequence {
-        humanizer.humanize(polylines, configuration: configuration, seed: seed)
+        humanizer
+            .humanize(polylines, configuration: configuration, seed: seed)
+            .timeScaled(by: timeScale)
     }
 }
