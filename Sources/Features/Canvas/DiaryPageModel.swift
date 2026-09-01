@@ -115,6 +115,13 @@ extension DiaryPagePhase {
 nonisolated struct ReplyOnPage: Equatable, Sendable {
     let sequence: StrokeSequence
     var playback: ReplayPlayback
+
+    /// 此刻纸上真的有墨的地方。给占用图用（计划 E9b）。
+    var drawnPolylines: [Polyline] {
+        sequence.drawnPolylines(
+            at: playback.elapsedSeconds(totalDuration: sequence.totalDuration)
+        )
+    }
 }
 
 @MainActor
@@ -139,8 +146,24 @@ final class DiaryPageModel {
 
     private(set) var phase: DiaryPagePhase = .nothingNew
 
-    /// 魂那段回应。E6 之前恒为 nil。
+    /// 魂**正在写**的那段回应。写完或被新的一段接替后会移进 `settledReplies`。
     private(set) var reply: ReplyOnPage?
+
+    /// 魂已经写下、并且定格留在页上的那些回应。
+    ///
+    /// ── 为什么必须有它（2026-09-01 实测出来的 bug）──
+    /// 原先只有 `reply` 一个位置，`beginReply` 直接替掉上一段。实测的症状是：
+    /// 写第二句话、收到第二段回应时，**第一段回应从纸上凭空消失了**。
+    /// 纸上的东西不该自己消失——这是这个产品最基本的约定（决策 14 的同一个道理）。
+    ///
+    /// 定格时保留它当时的播放状态，而不是一律按「写完」：
+    /// 被用户打断的那段就该停在半截字上（决策 14），不能因为「要留下来」就自己补完。
+    ///
+    /// 已知的下一步：按决策 18，写完的笔画最终要**落定进 `PKDrawing`**，
+    /// 这样用户能用系统橡皮擦掉它。现在还没做，因为那会让魂写的字混进
+    /// 「这一轮用户写了什么」的判断里（轮次按落笔时刻切，魂的笔画时刻也是「现在」），
+    /// 得先解决那个冲突。属计划 E3g。
+    private(set) var settledReplies: [ReplyOnPage] = []
 
     /// 笔是否悬在纸上。硬件不支持悬停时恒为 false（模拟器与 iPad 10 都不支持），
     /// 成页判断走没有悬停的那条路径，不需要兜底。
@@ -239,8 +262,14 @@ final class DiaryPageModel {
         if let drawing = lastDrawing {
             map.mark(reader.read(drawing).polylines)
         }
+        // 魂自己写过的每一段也要算。标的是 `drawnPolylines`（此刻真的有墨的部分）
+        // 而不是整段几何：一段被打断的回应停在半截字上，它「本来要写到的地方」
+        // 其实是空白纸，用整段几何标会让后面的回应绕开一片其实空着的地方。
+        for settled in settledReplies {
+            map.mark(settled.drawnPolylines)
+        }
         if let reply {
-            map.mark(reply.sequence.polylines)
+            map.mark(reply.drawnPolylines)
         }
         return map
     }
@@ -326,6 +355,10 @@ final class DiaryPageModel {
         writableArea = area
     }
 
+    /// 这个构建里的魂是不是在说写死的话（见 `OracleProvider.producesCannedReplies`）。
+    /// 界面用它在 DEBUG 里把「这不是模型说的」写在纸上。
+    var soulSaysCannedThings: Bool { oracle?.producesCannedReplies ?? false }
+
     /// 魂这一轮想写但纸上写不出来的字（缺笔顺数据）。
     ///
     /// 非空必须让人知道：页面上凭空少字而无人知晓是最难查的一类问题。
@@ -337,7 +370,27 @@ final class DiaryPageModel {
     /// 会调它——那是 E3d 打断规则唯一能真正跑起来的地方。
     /// 刻意不在这里造任何示例内容：假回应留在运行界面里会让 App 看起来会回应而实际不会。
     func beginReply(_ sequence: StrokeSequence) {
+        // 上一段先定格留在页上，再开始新的。漏掉这一步的后果实测过：
+        // 第二段一开始写，第一段就从纸上消失了。
+        settleCurrentReply()
         reply = ReplyOnPage(sequence: sequence, playback: .playing(since: .now))
+    }
+
+    /// 把当前这段回应定格，留在页上。
+    ///
+    /// 保留它**此刻**的进度而不是一律按「写完」：被打断的那段就该停在半截字上
+    /// （决策 14）。因为「要留下来」而自己补完，等于抹掉用户打断过的痕迹。
+    private func settleCurrentReply() {
+        guard let current = reply else { return }
+
+        let elapsed = current.playback.elapsedSeconds(
+            totalDuration: current.sequence.totalDuration
+        )
+        settledReplies.append(ReplyOnPage(
+            sequence: current.sequence,
+            playback: .frozen(atElapsed: elapsed)
+        ))
+        reply = nil
     }
 
     // MARK: 内部

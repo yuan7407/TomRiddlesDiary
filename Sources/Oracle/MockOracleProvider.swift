@@ -57,6 +57,10 @@ nonisolated struct MockOracleProvider: OracleProvider {
     /// 取 0.6 秒：够看出「有个等待」，又不至于测试变慢。
     private let thinkingTime: Duration
 
+    /// 是写死的。界面靠这个在 DEBUG 里当场把话说清楚——
+    /// 光在代码注释里写不够，拿着 App 测的人看不到注释。
+    let producesCannedReplies = true
+
     init(thinkingTime: Duration = .milliseconds(600)) {
         cursor = Cursor()
         self.thinkingTime = thinkingTime

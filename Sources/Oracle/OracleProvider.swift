@@ -92,4 +92,26 @@ nonisolated enum OracleFailure: Error, Equatable, Sendable {
 nonisolated protocol OracleProvider: Sendable {
     /// - Throws: `OracleFailure`。绝不返回编出来的文字冒充成功。
     func respond(to request: OracleRequest) async throws -> OracleReply
+
+    /// 这个 provider 的回应是不是**写死的**（也就是它根本不读用户写的字）。
+    ///
+    /// ── 为什么协议里需要这一条（2026-09-01 实测暴露）──
+    /// 用户在模拟器上写了「Who are you?」，纸上长出一段关于阳台纸箱的话，
+    /// 反馈是「回应完全不相关，像从文档里随机抓出来的」。
+    /// 那**正是** Mock 的设计行为（轮换固定文字），可是**一段写死的回应和一段真回应
+    /// 在纸上长得一模一样**——测的人分不清「模型很傻」和「这根本不是模型」。
+    ///
+    /// 光在代码注释里写清楚不够：拿着 App 测的人看不到注释。
+    /// 所以界面必须能在 DEBUG 里当场说出来，而界面要能问到这件事。
+    ///
+    /// 默认 false：真 provider 不需要关心这件事。
+    var producesCannedReplies: Bool { get }
+}
+
+/// 标 `nonisolated`：工程默认 actor 隔离是 MainActor，不标的话这个默认实现会被算成
+/// 主线程隔离，于是任何在非主线程上下文里声明的 provider（比如测试里的桩）都会
+/// 编译不过（「conformance crosses into main actor-isolated code」）。
+/// provider 本来就该能在任意线程上被问话。
+nonisolated extension OracleProvider {
+    var producesCannedReplies: Bool { false }
 }

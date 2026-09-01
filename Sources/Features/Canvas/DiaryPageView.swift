@@ -49,6 +49,14 @@ struct DiaryPageView: View {
                     onPencilHoverChanged: { model.hoverChanged($0) }
                 )
 
+                // 魂已经写下、定格留在页上的那些。纸上的东西不该自己消失——
+                // 2026-09-01 之前只画「正在写的那一段」，于是第二段一开始写、
+                // 第一段就从纸上消失了。
+                ForEach(Array(model.settledReplies.enumerated()), id: \.offset) { _, settled in
+                    HandwritingReplayView(sequence: settled.sequence, playback: settled.playback)
+                        .allowsHitTesting(false)
+                }
+
                 if let reply = model.reply {
                     HandwritingReplayView(sequence: reply.sequence, playback: reply.playback)
                         .allowsHitTesting(false)
@@ -61,6 +69,25 @@ struct DiaryPageView: View {
                 if case .soulSilent(let failure) = model.phase {
                     pageNotice(soulSilentNotice(failure), in: geometry.size, alignment: .bottom)
                 }
+
+                #if DEBUG
+                // 大方地说清楚：这段回应是写死的，不是模型说的。
+                //
+                // 为什么必须写在纸上而不是只写在代码注释里（2026-09-01 实测暴露）：
+                // 用户写了「Who are you?」，纸上长出一段关于阳台纸箱的话，
+                // 反馈是「回应完全不相关，像从文档里随机抓出来的」——那正是 Mock 的
+                // 设计行为，但**写死的回应和真回应在纸上长得一模一样**，
+                // 拿着 App 测的人分不清「模型很傻」和「这根本不是模型」。
+                //
+                // 只在 DEBUG。Release 里没有 provider，走的是上面那条诚实提示。
+                if model.soulSaysCannedThings, !model.settledReplies.isEmpty || model.reply != nil {
+                    pageNotice(
+                        "⚠️ DEBUG：上面那段字是写死的假回应，它不读你写的内容。真正的魂还没接上（计划 E6d，要 API key）。",
+                        in: geometry.size,
+                        alignment: .bottom
+                    )
+                }
+                #endif
             }
             // 可书写区域由这里算（页边距是视图尺寸的函数，模型不认识视图）。
             // 没有它魂定不了落点，所以一有尺寸就要报过去。

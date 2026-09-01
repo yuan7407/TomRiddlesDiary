@@ -358,3 +358,160 @@ nonisolated final class OracleLoopTests: XCTestCase {
     }
     #endif
 }
+
+// MARK: - 纸上的东西不该自己消失（2026-09-01 实测出的 bug）
+
+extension OracleLoopTests {
+    /// 症状：写第二句话、收到第二段回应时，**第一段回应从纸上凭空消失了**。
+    /// 根因：原先只有 `reply` 一个位置，`beginReply` 直接替掉上一段。
+    ///
+    /// 这条断言守着「魂写过的每一段都留在页上」。
+    @MainActor
+    func testEarlierRepliesStayOnThePage() throws {
+        let model = makeModel(oracle: StubOracle(text: "就一下，也算。"))
+
+        let first = try makeSequence("是写下来才发现的。")
+        model.beginReply(first)
+        XCTAssertTrue(model.settledReplies.isEmpty, "第一段还在写，不该有定格的")
+
+        let second = try makeSequence("这句还没写完。纸等着。")
+        model.beginReply(second)
+
+        XCTAssertEqual(model.settledReplies.count, 1, "第一段回应从纸上消失了")
+        XCTAssertEqual(model.settledReplies.first?.sequence, first)
+        XCTAssertEqual(model.reply?.sequence, second, "第二段应该正在写")
+    }
+
+    /// 连着三段，三段都得在。
+    @MainActor
+    func testThreeRepliesAllRemain() throws {
+        let model = makeModel(oracle: StubOracle(text: "x"))
+        let texts = ["就一下，也算。", "是写下来才发现的。", "这句还没写完。"]
+
+        for text in texts {
+            model.beginReply(try makeSequence(text))
+        }
+
+        XCTAssertEqual(model.settledReplies.count, 2)
+        XCTAssertNotNil(model.reply)
+    }
+
+    /// **被打断的那段定格在半截字上，不许自己补完**（决策 14）。
+    ///
+    /// 如果为了「留在页上」而按写完定格，用户打断过的痕迹就被抹掉了——
+    /// 界面上看是「我明明打断了它，它却自己写完了」。
+    @MainActor
+    func testAnInterruptedReplyIsSettledWhereItStoppedNotFinished() throws {
+        let model = makeModel(oracle: StubOracle(text: "x"))
+        let sequence = try makeSequence("我看见你写的 hello，慢一点。")
+
+        model.beginReply(sequence)
+        model.strokeBegan()   // 用户落笔 → 打断，冻结在当前进度
+
+        guard case .frozen(let interruptedAt) = try XCTUnwrap(model.reply).playback else {
+            return XCTFail("打断之后应该是冻结状态")
+        }
+        // 刚开始就打断，进度必然远小于总时长。
+        XCTAssertLessThan(interruptedAt, sequence.totalDuration)
+
+        model.beginReply(try makeSequence("另一段。"))
+
+        let settled = try XCTUnwrap(model.settledReplies.first)
+        guard case .frozen(let settledAt) = settled.playback else {
+            return XCTFail("定格下来的应该保留冻结进度，而不是变成「写完」")
+        }
+        XCTAssertEqual(settledAt, interruptedAt, accuracy: 0.001, "定格时进度被改掉了")
+
+        // 而且它画出来的墨必须**少于**整段——这才是「半截字」的可验证含义。
+        XCTAssertLessThan(
+            settled.drawnPolylines.flatMap(\.points).count,
+            sequence.polylines.flatMap(\.points).count,
+            "定格下来的墨和整段一样多，说明它自己补完了"
+        )
+    }
+
+    /// 占用图必须把定格下来的回应算进去，否则下一段会压在上一段上。
+    @MainActor
+    func testInkMapCountsSettledReplies() throws {
+        let model = makeModel(oracle: StubOracle(text: "x"))
+        let sequence = try makeSequence("是写下来才发现的。")
+        let region = try XCTUnwrap(PageRegion.covering(sequence.polylines))
+
+        let before = model.inkMap(
+            writableArea: pageArea,
+            glyphSize: HandwritingFeel.referenceGlyphHeightInPoints
+        )
+        XCTAssertTrue(before.canPlace(region), "还没写过，那块该是空的")
+
+        model.beginReply(sequence)
+        model.beginReply(try makeSequence("另一段。"))   // 把第一段挤成定格
+
+        let after = model.inkMap(
+            writableArea: pageArea,
+            glyphSize: HandwritingFeel.referenceGlyphHeightInPoints
+        )
+        XCTAssertFalse(after.canPlace(region), "定格下来的回应没被算进占用图")
+    }
+
+    /// 造一段真实的回应笔画（走和 App 相同的装配路径）。
+    private func makeSequence(_ text: String) throws -> StrokeSequence {
+        let glyphSize = HandwritingFeel.referenceGlyphHeightInPoints
+        var map = PageInkMap(
+            page: pageArea,
+            resolution: PageInkMap.Resolution(
+                glyphHeight: glyphSize,
+                lineSpacingRatio: PageAppearance.lineSpacingRatio
+            )
+        )
+        map.mark([])
+        return try ReplyComposer().compose(
+            text,
+            glyphSize: glyphSize,
+            lineSpacingRatio: PageAppearance.lineSpacingRatio,
+            after: nil,
+            on: map,
+            seed: 13
+        ).sequence
+    }
+}
+
+// MARK: - 已画出来的墨 vs 整段几何
+
+nonisolated final class DrawnGeometryTests: XCTestCase {
+    /// `drawnPolylines(at:)` 必须随进度增长，且在 0 与总时长两端取到两个极值。
+    ///
+    /// 为什么这条重要：占用图用它标「纸上真的有墨的地方」。
+    /// 如果它恒等于整段几何，一段被打断的回应就会把「本来要写到的地方」
+    /// 也标成占用，后面的回应会绕开一片其实空着的纸。
+    func testDrawnGeometryGrowsWithTime() throws {
+        let glyphSize = HandwritingFeel.referenceGlyphHeightInPoints
+        let page = PageRegion(left: 0, top: 0, width: 800, height: 600)
+        var map = PageInkMap(
+            page: page,
+            resolution: PageInkMap.Resolution(
+                glyphHeight: glyphSize,
+                lineSpacingRatio: PageAppearance.lineSpacingRatio
+            )
+        )
+        map.mark([])
+
+        let sequence = try ReplyComposer().compose(
+            "我看见你写的 hello，慢一点。",
+            glyphSize: glyphSize,
+            lineSpacingRatio: PageAppearance.lineSpacingRatio,
+            after: nil,
+            on: map,
+            seed: 3
+        ).sequence
+
+        let total = sequence.totalDuration
+        let atStart = sequence.drawnPolylines(at: 0).flatMap(\.points).count
+        let atHalf = sequence.drawnPolylines(at: total / 2).flatMap(\.points).count
+        let atEnd = sequence.drawnPolylines(at: total).flatMap(\.points).count
+        let whole = sequence.polylines.flatMap(\.points).count
+
+        XCTAssertEqual(atStart, 0, "起播那一刻纸上不该有墨")
+        XCTAssertLessThan(atHalf, atEnd, "墨没有随时间变多")
+        XCTAssertEqual(atEnd, whole, "写完时应该等于整段几何")
+    }
+}
