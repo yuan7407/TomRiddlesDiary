@@ -167,6 +167,19 @@ else
   fail=1
 fi
 
+# Oracle 是「说什么」那一侧（计划 E6）：把这一页的文字交出去、拿回一段话。
+# 它必须只依赖 Foundation，两个理由：
+# 一、一旦它能 import PencilKit，就有人会顺手把 PKDrawing 直接发给模型——
+#    而 AGENTS.md 要求「只发送完成任务所需的最少数据，默认不上传原始 PencilKit
+#    全量历史」。协议层面拿不到笔画，比靠实现方自觉可靠。
+# 二、一旦它能 import SwiftUI，「模型只决定说什么、不决定怎么写」这条铁律就有了
+#    可以被绕过的口子。手感必须完全由本地引擎决定。
+if check_layer_imports "Sources/Oracle" "Foundation"; then
+  echo "  ✓ Oracle 只依赖 Foundation（拿不到笔画，也碰不到 UI）"
+else
+  fail=1
+fi
+
 echo "================================"
 if [ "$fail" = "0" ]; then
   echo "✓ 门禁通过"
