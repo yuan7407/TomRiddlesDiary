@@ -150,6 +150,44 @@ final class DiaryPageModel {
         self.trigger = trigger
     }
 
+    // MARK: 版式（回应写在哪）
+
+    /// 这一轮写的字占了哪块地方（计划 E9a）。魂的回应要挨着它写。
+    ///
+    /// 用**这一轮**而不是整页：回应该挨着你刚写的那句话，
+    /// 而不是挨着整页所有内容的外框——那个框在写满半页之后就没有意义了。
+    /// 这一轮什么都没写时为 nil，落点决策会退回从可书写区域左上角写起。
+    var lastRoundRegion: PageRegion? {
+        PageRegion.covering(reading?.polylines ?? [])
+    }
+
+    /// 整页此刻的占用图（计划 E9b）：你写的每一笔 **加上** 魂已经写下的回应。
+    ///
+    /// 两者必须合起来算。只算用户笔画的话，第二段回应会压在第一段上；
+    /// 只算回应的话，回应会压在你的字上。
+    ///
+    /// - Parameters:
+    ///   - writableArea: **已扣掉页边距**的可书写区域。页边距属于界面尺寸，
+    ///     模型不认识它，所以由调用方算好传进来。
+    ///   - glyphSize: 字高。占用图的格子大小与预留间距都由它推出。
+    func inkMap(writableArea: PageRegion, glyphSize: Double) -> PageInkMap {
+        var map = PageInkMap(
+            page: writableArea,
+            resolution: PageInkMap.Resolution(
+                glyphHeight: glyphSize,
+                lineSpacingRatio: PageAppearance.lineSpacingRatio
+            )
+        )
+        // 整页的用户笔画，不是这一轮的——之前几轮写的字同样占地方。
+        if let drawing = lastDrawing {
+            map.mark(reader.read(drawing).polylines)
+        }
+        if let reply {
+            map.mark(reply.sequence.polylines)
+        }
+        return map
+    }
+
     /// 当前这一页要等多久才算写完。只给开发期读数用，让阈值这件事看得见。
     var commitWaitLength: TimeInterval {
         trigger.waitLength(

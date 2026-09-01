@@ -105,6 +105,16 @@ nonisolated struct StrokeSequence: Equatable, Sendable {
     var totalDuration: TimeInterval {
         strokes.reduce(into: 0) { $0 += $1.totalDuration }
     }
+
+    /// 剥掉时间信息，只留几何。
+    ///
+    /// 用途是把「魂已经写下的字」标进页面占用图（计划 E9b）——
+    /// 找空位时必须把魂之前写的回应也算成已占用，否则第二段回应会压在第一段上。
+    /// 这里给出的是**整段**的几何，不区分播到哪一笔：占用图要防的是压字，
+    /// 而没播完的那部分位置已经定了，迟一点也会长出来，一样不能占。
+    var polylines: [Polyline] {
+        strokes.map { Polyline(points: $0.samples.map(\.point)) }
+    }
 }
 
 /// 某一时刻的重播快照：每一笔各自画到了百分之几。
