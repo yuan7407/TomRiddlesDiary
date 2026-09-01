@@ -34,6 +34,16 @@ nonisolated struct PenTraceSample: Equatable, Sendable {
     /// 设备报告的力度原值。**量程未知且不公开**，所以不做任何归一化。
     /// 硬件不支持压感时全程为 0。
     let force: Double
+
+    /// 笔与屏幕的夹角（弧度）。
+    ///
+    /// 为什么要留着它：它是判断**这批数据到底是笔写的还是鼠标画的**最直接的线索。
+    /// 手指与鼠标在 PencilKit 里报的是固定的垂直角（π/2），而真笔握着写时角度一直在变。
+    ///
+    /// 这件事在校准里很要紧：鼠标画出来的速度、抖动、停顿都不是人手的，
+    /// 拿去调手感等于把参数调到一个不存在的「人」身上，而且调完还以为已经校准了。
+    /// 所以报告要能自己说清数据来源，而不是靠人记得「这次是用鼠标画的」。
+    let altitude: Double
 }
 
 /// 一笔真实笔迹。
@@ -62,11 +72,4 @@ nonisolated struct PenTrace: Equatable, Sendable {
     /// 这一笔的起点与终点。
     var start: Point2D? { samples.first?.point }
     var end: Point2D? { samples.last?.point }
-
-    /// 纵向跨度。用来粗略估字有多大（见 `HandwritingCalibration` 里对这个估算的说明）。
-    var verticalExtent: Double {
-        let ys = samples.map(\.point.y)
-        guard let low = ys.min(), let high = ys.max() else { return 0 }
-        return high - low
-    }
 }

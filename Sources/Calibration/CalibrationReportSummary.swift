@@ -28,6 +28,7 @@ nonisolated extension CalibrationReport {
             strokeCount, gapCount, inkDuration, inkLength
         ))
         lines.append("力度信息：\(hasVaryingForce ? "有（但量程未公开）" : "无（这支笔没有压感）")")
+        lines.append(inputSourceWarning)
         lines.append("")
 
         lines.append("【不需要知道字有多大就能量的】")
@@ -81,6 +82,17 @@ nonisolated extension CalibrationReport {
         lines.append("转折加成 curvaturePressureGain：需要力度信息，同上")
 
         return lines.joined(separator: "\n")
+    }
+
+    /// 数据来源那一行。不像笔写的就把话说重一点——这批数字**不能**用来调手感。
+    ///
+    /// 为什么要这么显眼：模拟器上只能用鼠标画，而鼠标的速度和抖动不是人手的。
+    /// 报告本身不说清来源，就只能指望人记得「这次是鼠标」，而人不会一直记得。
+    private var inputSourceWarning: String {
+        looksLikePenInput
+            ? "数据来源：像是真笔（笔与屏幕的夹角在变化）"
+            : "数据来源：**不像真笔**（夹角全程不变，多半是鼠标或手指）"
+                + "——下面的速度与抖动量的不是人手，只能用来确认这条链路通了，不能拿去调手感"
     }
 
     /// 一行「量出来 vs 现在用的」。

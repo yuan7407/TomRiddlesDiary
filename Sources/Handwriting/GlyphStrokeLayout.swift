@@ -67,6 +67,31 @@ nonisolated struct LaidOutGlyphStrokes: Equatable, Sendable {
     let usedHeight: Double
 
     var isEmpty: Bool { polylines.isEmpty }
+
+    /// 这段文字实际占了页面上哪一块（计划 E9d）。
+    ///
+    /// 为什么用**真实笔画**的包围盒而不是「行数 × 行高」：后者只是排版意图，
+    /// 而笔画会伸出字面方格（下伸部、逗号的尾巴），实际占地比意图大一点。
+    /// 找空位要按实际占地判断，否则算出来放得下、画出来压到字。
+    ///
+    /// 一个字都画不出来时为 nil：那种情况下「占了哪块」没有意义，
+    /// 调用方必须单独处理（它同时意味着 `uncoveredCharacters` 非空）。
+    var boundingBox: PageRegion? { PageRegion.covering(polylines) }
+}
+
+/// 试排结果：这段文字按给定宽度排出来会占多大（计划 E9d）。
+nonisolated struct GlyphStrokeMeasurement: Equatable, Sendable {
+    /// 实际占地。一个字都画不出来时为 nil。
+    let boundingBox: PageRegion?
+
+    let lineCount: Int
+
+    /// 排版层按行数与行高算出的高度。它与 `boundingBox.height` 会略有差别
+    /// （笔画伸出字面方格），两个都给出来，因为一个是意图、一个是事实。
+    let usedHeight: Double
+
+    /// 没有笔顺数据、排不出来的字。
+    let uncoveredCharacters: [Character]
 }
 
 nonisolated struct GlyphStrokeLayout: Sendable {
@@ -74,6 +99,36 @@ nonisolated struct GlyphStrokeLayout: Sendable {
 
     init(provider: GlyphStrokeProvider = GlyphStrokeProvider()) {
         self.provider = provider
+    }
+
+    /// 试排：这段文字按给定宽度排出来会占多大（计划 E9d）。
+    ///
+    /// ── 为什么需要「试排」这个概念 ──
+    /// 「回应排在哪」是一个环：要知道占多大必须先排版；排版要知道每行多宽；
+    /// 多宽取决于放进哪块空位；选哪块空位又取决于占多大。
+    /// 解开它的办法是把顺序定死——先假定一个宽度、排出来看占多大、
+    /// 拿这个尺寸去找空位、找不到就换更窄的宽度再试。所以排版必须能「只算不落地」。
+    ///
+    /// ── 为什么直接调 `layOut` 而不另写一套只算尺寸的快路径 ──
+    /// 另写一套就意味着同一个「怎么换行、每个字多宽」的规则存在两份。
+    /// 它们迟早会不一致，而不一致的症状是：试排说放得下，真排出来压到了字——
+    /// 一个只在特定文字与特定宽度下才出现的偶发问题，极难定位。
+    /// 宁可多算一遍，也不要两套算法算出不同答案。
+    ///
+    /// 代价是试排会白生成一遍笔画几何。回应通常只有一两句话、试排两三次，
+    /// 这个代价可以接受；真成为瓶颈时再优化（属计划 B 性能优化），
+    /// 届时的正确做法是把「换行与推进」抽成一条两边共用的路径，而不是复制一份。
+    func measure(
+        _ text: String,
+        configuration: GlyphStrokeLayoutConfiguration
+    ) throws -> GlyphStrokeMeasurement {
+        let laidOut = try layOut(text, configuration: configuration)
+        return GlyphStrokeMeasurement(
+            boundingBox: laidOut.boundingBox,
+            lineCount: laidOut.lineCount,
+            usedHeight: laidOut.usedHeight,
+            uncoveredCharacters: laidOut.uncoveredCharacters
+        )
     }
 
     /// 把文字排成页面坐标里的有序笔画。

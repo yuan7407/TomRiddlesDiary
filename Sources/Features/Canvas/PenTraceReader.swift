@@ -36,7 +36,8 @@ nonisolated struct PenTraceReader: Sendable {
                 return PenTraceSample(
                     point: Point2D(x: located.x, y: located.y),
                     timeOffset: point.timeOffset,
-                    force: Double(point.force)
+                    force: Double(point.force),
+                    altitude: Double(point.altitude)
                 )
             }
 
