@@ -31,14 +31,18 @@ nonisolated final class HandwritingCalibrationTests: XCTestCase {
         duration: TimeInterval,
         sampleCount: Int = 40,
         y: Double = 100,
-        force: Double = 0
+        force: Double = 0,
+        tilting: Bool = true
     ) -> PenTrace {
         let samples = (0 ..< sampleCount).map { index -> PenTraceSample in
             let fraction = Double(index) / Double(sampleCount - 1)
             return PenTraceSample(
                 point: Point2D(x: originX + fraction * length, y: y),
                 timeOffset: fraction * duration,
-                force: force
+                force: force,
+                // 默认让夹角轻微变化，模拟真笔；`tilting: false` 则是鼠标/手指
+                // 报的那个固定垂直角。
+                altitude: tilting ? .pi / 2 - 0.3 + fraction * 0.1 : .pi / 2
             )
         }
         return PenTrace(startedAt: startedAt, samples: samples)
@@ -61,7 +65,8 @@ nonisolated final class HandwritingCalibrationTests: XCTestCase {
                     y: 100 + amplitude * sin(2 * .pi * frequencyInHertz * time)
                 ),
                 timeOffset: time,
-                force: 0
+                force: 0,
+                altitude: .pi / 2 - 0.3 + fraction * 0.1
             )
         }
         return PenTrace(startedAt: base, samples: samples)
@@ -227,6 +232,53 @@ nonisolated final class HandwritingCalibrationTests: XCTestCase {
 
         XCTAssertEqual(report.strokeCount, 2)
         XCTAssertGreaterThanOrEqual(report.gapCount, 0)
+    }
+
+    // MARK: 数据来源要自己说清
+
+    /// 鼠标/手指画出来的数据必须被认出来，并在报告里说重话。
+    ///
+    /// 为什么这条重要：模拟器上只能用鼠标画。鼠标的速度和抖动不是人手的，
+    /// 拿那批数字调手感等于把参数调到一个不存在的「人」身上，而且调完还以为校准过了。
+    /// 判据是笔与屏幕的夹角有没有变化——鼠标报的是固定的垂直角。
+    func testMouseInputIsRecognisedAndCalledOutInTheReport() {
+        let traces = (0 ..< 12).map { index in
+            makeStraightTrace(
+                startedAt: base.addingTimeInterval(Double(index) * 2),
+                length: 100,
+                duration: 1,
+                tilting: false
+            )
+        }
+
+        let report = HandwritingCalibration.analyze(traces)
+
+        XCTAssertFalse(report.looksLikePenInput, "夹角全程不变，应判成不像真笔")
+        XCTAssertTrue(
+            report.summary.contains("不像真笔"),
+            "报告必须把这件事说出来，不能只在字段里藏着"
+        )
+        XCTAssertTrue(
+            report.summary.contains("不能拿去调手感"),
+            "要说清后果，而不只是说现象"
+        )
+    }
+
+    /// 夹角在变化时应判成真笔，报告里不出现警告。
+    func testPenInputIsRecognised() {
+        let traces = (0 ..< 12).map { index in
+            makeStraightTrace(
+                startedAt: base.addingTimeInterval(Double(index) * 2),
+                length: 100,
+                duration: 1,
+                tilting: true
+            )
+        }
+
+        let report = HandwritingCalibration.analyze(traces)
+
+        XCTAssertTrue(report.looksLikePenInput)
+        XCTAssertFalse(report.summary.contains("不像真笔"))
     }
 
     // MARK: 报告本身

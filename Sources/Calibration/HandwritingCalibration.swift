@@ -100,6 +100,16 @@ nonisolated struct CalibrationReport: Equatable, Sendable {
 
     /// 这批笔迹里力度有没有真的在变。false 表示压感那几项注定量不了。
     let hasVaryingForce: Bool
+
+    /// 这批数据像不像真笔写的。
+    ///
+    /// 判据是笔与屏幕的夹角有没有变化：手指与鼠标在 PencilKit 里报的是固定的垂直角，
+    /// 真笔握着写时角度一直在变。
+    ///
+    /// **为什么这一条必须出现在报告里**：模拟器上只能用鼠标画，而鼠标画出来的速度、
+    /// 抖动、停顿都不是人手的。拿那批数字调手感，等于把参数调到一个不存在的「人」身上，
+    /// 而且调完还以为已经校准了。让报告自己说清来源，比指望人记得「这次是鼠标画的」可靠。
+    let looksLikePenInput: Bool
 }
 
 nonisolated enum HandwritingCalibration {
@@ -143,6 +153,10 @@ nonisolated enum HandwritingCalibration {
         let tremor = tremorAmplitude(of: usable)
         let force = forceRange(of: usable)
         let hasVaryingForce = force.map { $0.upperBound > $0.lowerBound } ?? false
+        let altitudes = usable.flatMap { $0.samples.map(\.altitude) }
+        // 夹角完全不变就当成不是笔。用「有没有变化」而不是「等不等于 π/2」：
+        // 后者要跟一个具体角度比，而那个角度是平台实现细节，不该写死在这里。
+        let looksLikePenInput = (altitudes.max() ?? 0) - (altitudes.min() ?? 0) > coincidentPointTolerance
 
         let liftFit = fitPenLift(gaps: gaps, inkSpeed: speed.value)
 
@@ -162,30 +176,31 @@ nonisolated enum HandwritingCalibration {
             pressureVariation: hasVaryingForce
                 ? .unmeasurable("这批笔迹有力度变化，但 force 的量程未公开，无法换算成 0…1 的压感")
                 : .unmeasurable("这支笔没有压感（USB-C Apple Pencil 与第三方笔经 PencilKit 都拿不到）"),
-            hasVaryingForce: hasVaryingForce
+            hasVaryingForce: hasVaryingForce,
+            looksLikePenInput: looksLikePenInput
         )
     }
 
     // MARK: 字有多大
 
-    /// 字高的**粗糙**估算：取纵向跨度最大的那四分之一笔画，求它们跨度的中位数。
+    /// 字高的**粗糙**估算。
     ///
-    /// 依据：汉字里总有几笔（长竖、竖钩、整个字的外框笔）纵向跨过差不多整个字。
-    /// 取最高的四分之一是为了避开点、短横这些天生很矮的笔画；取中位数是为了不被
-    /// 某一笔特别夸张的连笔带跑。
+    /// 算法本身在 `HandwritingSizeEstimator`（产品也要用它——魂写的字必须和用户一样大，
+    /// 见计划 E9c），这里只是把它的结果转成校准报告的格式。
+    /// **刻意复用而不是在这里再写一份**：同一个「用户的字有多大」出现两个答案，
+    /// 会让「量出来的字号」和「魂实际用的字号」对不上，而那种不一致查起来极难。
     ///
-    /// **它只是个启发式，不是测量。** 会偏小的情况：写的全是笔画少的字。
-    /// 会偏大的情况：字与字连笔、或者写了很长的下划线之类。
-    /// 所以报告里同时给绝对值，好让人一眼看出估算是否离谱——
+    /// 它是启发式不是测量，局限见 `HandwritingSizeEstimator` 的说明。
+    /// 报告里同时给绝对值，好让人一眼看出估算是否离谱——
     /// 9 mm 的字在 iPad 上约 47 点，估出 200 点就说明这个估算不能用。
     static func estimatedGlyphHeight(of traces: [PenTrace]) -> CalibrationValue {
-        let extents = traces.map(\.verticalExtent).filter { $0 > 0 }.sorted()
-        guard extents.count >= minimumSampleCount else {
-            return .unmeasurable("只有 \(extents.count) 笔可用，不足 \(minimumSampleCount) 笔")
+        let polylines = traces.map { Polyline(points: $0.samples.map(\.point)) }
+        guard let estimate = HandwritingSizeEstimator.estimate(from: polylines) else {
+            return .unmeasurable(
+                "可用笔画不足 \(HandwritingSizeEstimator.minimumStrokeCount) 笔，估不出字号"
+            )
         }
-
-        let tallest = extents.suffix(max(1, extents.count / 4))
-        return .measured(median(of: Array(tallest)))
+        return .measured(estimate.typical)
     }
 
     // MARK: 手抖
@@ -360,13 +375,6 @@ nonisolated enum HandwritingCalibration {
             return .unmeasurable("字高未知，换不成比例")
         }
         return .measured(value / scale)
-    }
-
-    private static func median(of sorted: [Double]) -> Double {
-        let middle = sorted.count / 2
-        return sorted.count.isMultiple(of: 2)
-            ? (sorted[middle - 1] + sorted[middle]) / 2
-            : sorted[middle]
     }
 
     private static func standardDeviation(of values: [Double]) -> Double {
