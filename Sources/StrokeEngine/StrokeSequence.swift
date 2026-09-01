@@ -106,14 +106,47 @@ nonisolated struct StrokeSequence: Equatable, Sendable {
         strokes.reduce(into: 0) { $0 += $1.totalDuration }
     }
 
-    /// 剥掉时间信息，只留几何。
+    /// 剥掉时间信息，只留几何——**整段**的，不管播到哪儿。
     ///
-    /// 用途是把「魂已经写下的字」标进页面占用图（计划 E9b）——
-    /// 找空位时必须把魂之前写的回应也算成已占用，否则第二段回应会压在第一段上。
-    /// 这里给出的是**整段**的几何，不区分播到哪一笔：占用图要防的是压字，
-    /// 而没播完的那部分位置已经定了，迟一点也会长出来，一样不能占。
+    /// 用于「这段回应最终会占多大」这类问题。要问「此刻纸上真的有墨的地方」
+    /// 请用 `drawnPolylines(at:)`，两者的区别见那个方法的说明。
     var polylines: [Polyline] {
         strokes.map { Polyline(points: $0.samples.map(\.point)) }
+    }
+
+    /// 到 `elapsed` 秒时**已经画出来**的墨迹几何。
+    ///
+    /// 和 `polylines` 的区别很要紧，用错了会有可见后果：
+    /// 占用图要标的是**纸上真的有墨的地方**。一段被用户打断的回应停在半截字上
+    /// （决策 14），它「本来要写到的地方」其实是空白纸——用整段几何去标，
+    /// 后面的回应就会绕开一大片其实空着的地方，页面看起来莫名地稀疏。
+    ///
+    /// - Note: 逐笔的进度由 `StrokeReplayTimeline` 算，半截线段的末端由
+    ///   `StrokeGrowth` 算。这里不重新实现任何一段几何，只是把它们的结果串成折线，
+    ///   否则「画出来的是哪一段」就会有两套答案。
+    func drawnPolylines(at elapsed: TimeInterval) -> [Polyline] {
+        let frame = StrokeReplayTimeline(sequence: self).frame(at: elapsed)
+
+        return strokes.enumerated().compactMap { index, stroke in
+            let progress = frame.progressByStroke.indices.contains(index)
+                ? frame.progressByStroke[index]
+                : 0
+            guard let partial = StrokeGrowth.partial(of: stroke, progress: progress) else {
+                return nil
+            }
+
+            switch partial {
+            case .dot(let sample, _):
+                // 墨点的大小不影响它占哪个格子，所以这里不需要生长比例。
+                return Polyline(points: [sample.point])
+            case .line(let completeSegmentCount, let growingTip):
+                var points = stroke.samples[0 ... completeSegmentCount].map(\.point)
+                if let growingTip {
+                    points.append(growingTip.point)
+                }
+                return Polyline(points: points)
+            }
+        }
     }
 }
 
