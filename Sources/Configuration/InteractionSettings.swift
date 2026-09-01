@@ -85,6 +85,25 @@ nonisolated enum InteractionSettings {
     /// 改这两组数值时不要绕过它。
     static let pageCommitCheckInterval: Duration = .milliseconds(100)
 
+    // MARK: 问魂的请求参数（计划 E6d）
+
+    /// 一次 Oracle 请求的参数。
+    static let oracleRequest = OracleRequestSettings(
+        // 0.85：这是个要有个性的角色，不是查资料。温度太低会变成一板一眼的客服口吻，
+        // 太高会开始跑题、也更容易忘掉「短」这条铁律。
+        // 这个值**没有测量依据**，是从「要有人味但要守规矩」这个目标推的起点，
+        // 接上真模型跑过 C1 那 11 段之后应该重新评估。
+        temperature: 0.85,
+        // 回应上限 25–40 个汉字（见 C1 的长度硬约束）。中文一个字大致 1–2 个 token，
+        // 留出三倍余量到 200：够它写完，又不至于在它跑题时白烧一大段。
+        // 截断在这里是**兜底不是手段**——真正约束长度的是 system prompt，
+        // 因为被 token 上限砍断的是半句话，比长更糟。
+        maxTokens: 200,
+        // 20 秒。用户已经等了成页判断的两三秒，再等太久会以为坏了；
+        // 而这条链路后面还要花十几秒逐笔写出来，所以请求本身不该是主要的等待。
+        timeout: 20
+    )
+
     // MARK: 回应落点（计划 E9e）
 
     /// 魂这段回应写在哪——**只有这两个数需要人来定**。
