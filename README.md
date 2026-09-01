@@ -36,7 +36,8 @@ Sources/                  App 源码
     HandwritingReplayView 用笔画逐笔生长（当前正式路径）
     ReplyPlacement        回应落在页面哪里（E9e，在 Handwriting/ 下）
   Calibration/            用真人笔迹量手感参数（A10，只依赖 Foundation）
-  Resources/GlyphStrokes/ 字形笔顺数据 + Arphic 授权正文
+  Resources/GlyphStrokes/  字形笔顺数据 + Arphic 授权正文
+  Resources/Persona.json   魂的人设：名字、system prompt、语气。改这个就能换人设
   StrokeEngine/           手绘化、生长几何与重播时序（纯逻辑，不依赖 UI 与配置）
     StrokeHumanizer       把几何折线变成带压感与节奏的笔画
     StrokeGrowth          一笔在某个进度下应该画到哪里（含生长中的半段）
@@ -44,8 +45,8 @@ Sources/                  App 源码
 Tests/                    XCTest（与 Sources 同级，不打进 App）
 C1-response-quality-set.md 模型评测集（11 段样张 + 参考答案 + 各家实测）。是**数据不是文档**，
                           性质同 Tests/ 夹具，所以三份文档的职责表里没有它
-Config/                   Secrets / Persona 模板，真实值被 gitignore
-scripts/                  仓库工具：提交门禁（不属于 App，不会被打包）
+Config/                   Secrets.xcconfig（你的 key，一行，已 gitignore）+ Info.plist（接线用，不用碰）
+scripts/                  仓库工具：repo_check.sh（提交前检查）、check_oracle_key.sh（验 key）
 ```
 
 目标模块划分见 `AGENTS.md` 的「模块边界」。工程使用 Xcode 同步文件组，`Sources/` 与 `Tests/` 下新增文件自动加入对应 target，不需手改 pbxproj。
@@ -102,7 +103,7 @@ xcodebuild -project TomRiddlesDiary.xcodeproj -scheme TomRiddlesDiary \
   -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
 
 # 提交门禁
-bash scripts/ip_firewall_check.sh
+bash scripts/repo_check.sh
 ```
 
 预期 `264 tests, 0 failures`（在 iPadOS 26 的模拟器上会有 4 条识别用例如实跳过） 与 `** BUILD SUCCEEDED **`。构建有一条非阻塞提示（未依赖 AppIntents，跳过其 metadata），属预期。门禁会报若干占位品牌名的 ⚠，在白名单内，属预期。
@@ -192,7 +193,7 @@ Simulator 能跑不等于体验通过：压感、书写节奏与手写识别准�
 | E6b（危机场景怎么写出来） | ✅ 2026-09-01 用户拍板解决。**救助信息不进魂的嘴**：魂留在世界观里（短、接住、不提号码），求助途径由纸之外的一层普通系统界面给。这样不回避、不破坏魔法，而且号码不是手写出来的所以不用等一分钟 |
 | E6c（回应长度与书写速度） | ✅ 2026-09-01 用户实跑后拍板：**不动**。实测 17.9 秒与 28.5 秒两段，结论「看着还行」。注意被确认的是「时长可接受」，不是 7.5 字高/秒这个参数 |
 | E6e（怎么认出这是危机表达） | ⬜ 比参考答案更要紧。E6b 那套分层的前提是「认出来了」，而认出来没做。让模型判断（有上下文但不可靠）还是本地关键词（可控但漏报率高）未定；两种错的代价不对称也不同向，不能简单「宁可误报」。**这一条没定之前产品不该分发** |
-| E6d（接真 provider） | ⚙️ 2026-09-01 **代码全部就位，只差一行 key**。`Config/Oracle.xcconfig`（可提交，端点默认值）+ `Secrets.xcconfig`（gitignored，只放 key）+ `Config/Info.plist`（Debug 底稿）把配置送进运行时；`ChatCompletionsOracle` 按 OpenAI 兼容格式发请求（按格式命名不按供应商命名，换家只改配置）；人设从 `Persona.local.json` 读、Debug 才拷进包、`debugOnly` 做第二道闸门；`OracleIdentityGuard` 拦身份泄漏（只检查不改写，重试一次再失败就如实报错）。**已实测核对 Release 包的 Info.plist 里连键名都没有。** 差的是用户在 `Config/Secrets.xcconfig` 里加 `ORACLE_API_KEY = sk-...`，自查用 `bash scripts/check_oracle_key.sh` |
+| E6d（接真 provider） | ✅ **2026-09-01 已真接通并实测**（DeepSeek V4 Flash）。用户只需维护一个文件：`Config/Secrets.xcconfig`（gitignored，一行 `ORACLE_API_KEY = sk-...`），它直接作为 App target **Debug** 配置的 baseConfigurationReference；端点默认值与 `INFOPLIST_FILE` 在 pbxproj 的 Debug 设置里；`Config/Info.plist` 底稿送进运行时。**已核对 Release 包的 Info.plist 里连键名都没有。** 人设是普通打包资源 `Sources/Resources/Persona.json`，改它就能换人设。`OracleIdentityGuard` 拦身份泄漏（只检查不改写）。**必须关掉模型思考模式**——默认开着时思维链也算 token，实测会返回空回答且贵六倍。自查：`bash scripts/check_oracle_key.sh` |
 | E7 | 魔法生死评审：手写文字回应的 Go/Kill 判断（原 12 步计划第 8 步，对象由图像换成文字，评审本身保留）。**必须在 E1 之后**——已删掉的 E8 字体版本无法逐笔生长，不能用它判生死。现在 E1 + E9e 都完成了，条件已具备，只差真机观感 |
 | E8 | ✅ 完成并已于 2026-09-01 **整体删除**（H9）。它的用途是在字形笔顺数据到位前先把「回应出现在纸上」这条链路跑通，那个任务在 2026-08-27 完成、E1 在 08-28 取代了它。字体是轮廓不含笔顺，给不出逐笔生长，所以从一开始就是明确的临时方案（决策 26）。留在仓库里的唯一痕迹是 `GlyphStrokeLayout` 文件头那段「为什么不用 CoreText」 |
 

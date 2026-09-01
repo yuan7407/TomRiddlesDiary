@@ -18,52 +18,50 @@
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SECRETS="$ROOT/Config/Secrets.xcconfig"
-ORACLE="$ROOT/Config/Oracle.xcconfig"
+cd "$ROOT"
+SECRETS="Config/Secrets.xcconfig"
 
 if [ ! -f "$SECRETS" ]; then
   echo "✗ 没有 $SECRETS"
-  echo "  先做这一步： cp Config/Secrets.example.xcconfig Config/Secrets.xcconfig"
-  echo "  然后在那个副本里填你的真 key。"
+  echo "  新建这个文件，里面写一行："
+  echo "      ORACLE_API_KEY = sk-你的真key"
+  echo "  它已经被 .gitignore 挡住，不会提交。"
   exit 1
 fi
 
-# 从 xcconfig 里取值。只取等号右边，去掉前后空格。
-read_setting() {
-  local name="$1" file="$2"
-  [ -f "$file" ] || return 0
-  grep -E "^[[:space:]]*$name[[:space:]]*=" "$file" 2>/dev/null \
-    | tail -1 | sed "s/^[^=]*=[[:space:]]*//" | sed 's/[[:space:]]*$//'
-}
+# 端点默认值（host / path / model）写在 Xcode 工程的 Debug 配置里，
+# Secrets.xcconfig 里的同名值会覆盖它们。
+# **从工程里读而不是在这儿抄一份**：抄一份就是同一个值有两个来源，
+# 迟早出现「脚本说通了、App 里却是另一个端点」。代价是慢十秒左右。
+echo "== 从 Xcode 工程读配置（慢十秒）=="
+SETTINGS=$(xcodebuild -project TomRiddlesDiary.xcodeproj -target TomRiddlesDiary \
+             -configuration Debug -showBuildSettings 2>/dev/null)
 
-# Secrets 里的值覆盖 Oracle 里的默认值（和构建时的顺序一致）。
-HOST="$(read_setting ORACLE_HOST "$ORACLE")"
-[ -n "$(read_setting ORACLE_HOST "$SECRETS")" ] && HOST="$(read_setting ORACLE_HOST "$SECRETS")"
-CHAT_PATH="$(read_setting ORACLE_CHAT_PATH "$ORACLE")"
-MODEL="$(read_setting ORACLE_MODEL "$ORACLE")"
-[ -n "$(read_setting ORACLE_MODEL "$SECRETS")" ] && MODEL="$(read_setting ORACLE_MODEL "$SECRETS")"
-KEY="$(read_setting ORACLE_API_KEY "$SECRETS")"
+setting() { printf '%s' "$SETTINGS" | grep -E "^ +$1 = " | head -1 | sed "s/^[^=]*= *//"; }
 
+HOST="$(setting ORACLE_HOST)"
+CHAT_PATH="$(setting ORACLE_CHAT_PATH)"
+MODEL="$(setting ORACLE_MODEL)"
+KEY="$(setting ORACLE_API_KEY)"
+
+echo
 echo "== 配置 =="
 echo "  host    : ${HOST:-（空）}"
 echo "  path    : ${CHAT_PATH:-（空）}"
 echo "  model   : ${MODEL:-（空）}"
 if [ -z "$KEY" ]; then
-  echo "  key     : ✗ 没有"
+  echo "  key     : ✗ 没读到"
   echo
-  echo "在 $SECRETS 里加一行（变量名必须完全一致）："
-  echo "  ORACLE_API_KEY = sk-你的真key"
-  echo
-  echo "注意：那个文件里现在的 DASHSCOPE_API_KEY / GEMINI_API_KEY / FLUX_API_KEY"
-  echo "是更早版本留下的，代码不读它们。"
+  echo "在 $SECRETS 里写一行（变量名必须完全一致）："
+  echo "      ORACLE_API_KEY = sk-你的真key"
   exit 1
 fi
 case "$KEY" in
   *在这里粘贴*|REPLACE*)
-    echo "  key     : ✗ 还是模板占位值"
+    echo "  key     : ✗ 还是占位值"
     exit 1 ;;
 esac
-echo "  key     : ✓ 已填（${#KEY} 字符，不显示内容）"
+echo "  key     : ✓ 已读到（${#KEY} 字符，不显示内容）"
 echo
 
 URL="https://${HOST}${CHAT_PATH}"

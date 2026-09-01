@@ -5,9 +5,9 @@
 //  文件职责：决定「这个构建实际用哪个魂」，并把它装起来（计划 E6d）。
 //
 //  ── 三种情况，优先级从高到低 ──
-//  ① 端点与 key 都配好了、人设也读到了 → 用真的（`ChatCompletionsOracle`）
-//  ② 没配好，但这是 DEBUG 构建 → 用假的（`MockOracleProvider`），纸上会说明它是假的
-//  ③ 没配好，而且是 Release 构建 → **什么都不用**，界面如实说魂接不上
+//  ① key 配好了、人设也读到了 → 用真的（`ChatCompletionsOracle`）
+//  ② 没配 key，但这是 DEBUG 构建 → 用假的（`MockOracleProvider`），纸上会说明它是假的
+//  ③ 没配 key，而且是 Release 构建 → **什么都不用**，界面如实说魂接不上
 //
 //  ── 为什么装配要单独一个文件 ──
 //  这三种情况的判断散在别处会出两种问题：一是「为什么现在用的是假魂」变得很难查，
@@ -28,38 +28,33 @@ nonisolated enum OracleAssembly {
     ///
     /// - Parameters:
     ///   - bundle: 从哪读端点配置与人设文件。便于测试注入。
-    ///   - isReleaseBuild: 是否正式构建。决定两件事：标了 `debugOnly` 的人设能不能用，
-    ///     以及没配 provider 时要不要退回假魂。
-    static func makeProvider(
-        bundle: Bundle = .main,
-        isReleaseBuild: Bool = OracleAssembly.isRelease
-    ) -> OracleProvider? {
-        if let real = makeRealProvider(bundle: bundle, isReleaseBuild: isReleaseBuild) {
+    static func makeProvider(bundle: Bundle = .main) -> OracleProvider? {
+        if let real = makeRealProvider(bundle: bundle) {
             return real
         }
         #if DEBUG
-        // 真的没配上就退回假魂，好让链路能跑。它在纸上会自己承认是假的
+        // 没配上就退回假魂，好让链路能跑。它在纸上会自己承认是假的
         // （`producesCannedReplies`），所以不会被误认成模型的回答。
-        return isReleaseBuild ? nil : MockOracleProvider()
+        return MockOracleProvider()
         #else
         return nil
         #endif
     }
 
     /// 试着装真 provider。任何一环缺失都返回 nil，并在 DEBUG 里说清缺的是哪一环。
-    private static func makeRealProvider(bundle: Bundle, isReleaseBuild: Bool) -> OracleProvider? {
+    private static func makeRealProvider(bundle: Bundle) -> OracleProvider? {
         guard let endpoint = OracleEndpoint.fromBundle(bundle) else {
-            report("端点没配全（Config/Secrets.xcconfig 里填了 ORACLE_API_KEY 吗？变量名必须完全一致）")
+            report("没读到 key。在 Config/Secrets.xcconfig 里写一行：ORACLE_API_KEY = sk-你的key")
             return nil
         }
         guard let personaData = personaData(in: bundle) else {
-            report("读不到人设文件。复制 Config/Persona.example.json 成 Persona.local.json 再填。")
+            report("读不到 Sources/Resources/Persona.json")
             return nil
         }
 
         let persona: SoulPersona
         do {
-            persona = try SoulPersonaLoader.decode(personaData, isReleaseBuild: isReleaseBuild)
+            persona = try SoulPersonaLoader.decode(personaData)
         } catch let failure as SoulPersonaFailure {
             report(failure.sentenceForDeveloper)
             return nil
@@ -75,28 +70,12 @@ nonisolated enum OracleAssembly {
         )
     }
 
-    /// 人设文件的内容。
-    ///
-    /// 它由构建脚本在 **Debug** 时拷进包（见工程的「拷人设（仅 Debug）」构建阶段）。
-    /// Release 构建里不会有这个文件——那是刻意的：当前的人设是内部 IP 占位，
-    /// 绝不能进分发面。商业版要用原创人设，届时它会作为正常资源打包。
+    /// 人设文件的内容。`Sources/Resources/Persona.json`，一个普通的打包资源。
     private static func personaData(in bundle: Bundle) -> Data? {
-        guard let url = bundle.url(forResource: "Persona.local", withExtension: "json") else {
+        guard let url = bundle.url(forResource: "Persona", withExtension: "json") else {
             return nil
         }
         return try? Data(contentsOf: url)
-    }
-
-    /// 当前是不是正式构建。
-    ///
-    /// 用编译条件而不是运行时判断（比如查有没有调试器）：编译条件在编译期就定了，
-    /// 骗不过去；运行时判断可以被绕过，而这里挡的是 IP 进分发面，不能有活动余地。
-    static var isRelease: Bool {
-        #if DEBUG
-        false
-        #else
-        true
-        #endif
     }
 
     /// 把「为什么用/没用真魂」打出来。只在 DEBUG。

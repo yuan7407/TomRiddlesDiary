@@ -19,7 +19,7 @@
 /* Begin PBXFileReference section */
 		2F90C58C3011F42E000B2DC2 /* TomRiddlesDiary.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = TomRiddlesDiary.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A37576000000000000000001 /* TomRiddlesDiaryTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = TomRiddlesDiaryTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		A375760000000000000000C1 /* Oracle.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = Oracle.xcconfig; path = Config/Oracle.xcconfig; sourceTree = "<group>"; };
+		A375760000000000000000C1 /* Secrets.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = Secrets.xcconfig; path = Config/Secrets.xcconfig; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -75,7 +75,7 @@
 		2FC4284D3046D103009DD2B7 /* Recovered References */ = {
 			isa = PBXGroup;
 			children = (
-				A375760000000000000000C1 /* Oracle.xcconfig */,
+				A375760000000000000000C1 /* Secrets.xcconfig */,
 			);
 			name = "Recovered References";
 			sourceTree = "<group>";
@@ -90,7 +90,6 @@
 				2F90C5883011F42E000B2DC2 /* Sources */,
 				2F90C5893011F42E000B2DC2 /* Frameworks */,
 				2F90C58A3011F42E000B2DC2 /* Resources */,
-				A375760000000000000000D1 /* 拷人设（仅 Debug） */,
 			);
 			buildRules = (
 			);
@@ -184,24 +183,6 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
-
-/* Begin PBXShellScriptBuildPhase section */
-		A375760000000000000000D1 /* 拷人设（仅 Debug） */ = {
-			isa = PBXShellScriptBuildPhase;
-			alwaysOutOfDate = 1;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputPaths = (
-			);
-			name = "拷人设（仅 Debug）";
-			outputPaths = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "# 把本地人设拷进 App 包——**只在 Debug**。\n# 为什么要有这道 CONFIGURATION 判断：当前人设是内部 IP 占位（Persona.local.json，\n# 已 gitignored）。它绝不能进分发包，而「记得别在 Release 里拷」靠人记不可靠。\nif [ \"${CONFIGURATION}\" != \"Debug\" ]; then\n  echo \"note: Release 构建不拷人设（内部占位人设不得进分发面）\"\n  exit 0\nfi\nSRC=\"${SRCROOT}/Config/Persona.local.json\"\nif [ ! -f \"${SRC}\" ]; then\n  echo \"warning: 没有 ${SRC}。魂会退回 DEBUG 假回应。复制 Config/Persona.example.json 成 Persona.local.json 再填。\"\n  exit 0\nfi\ncp \"${SRC}\" \"${BUILT_PRODUCTS_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/Persona.local.json\"\necho \"note: 已拷入人设（仅 Debug）\"\n";
-		};
-/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		2F90C5883011F42E000B2DC2 /* Sources */ = {
@@ -349,8 +330,12 @@
 		};
 		2F90C5983011F42F000B2DC2 /* Debug */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = A375760000000000000000C1 /* Oracle.xcconfig */;
+			baseConfigurationReference = A375760000000000000000C1 /* Secrets.xcconfig */;
 			buildSettings = {
+				INFOPLIST_FILE = Config/Info.plist;
+				ORACLE_CHAT_PATH = /v1/chat/completions;
+				ORACLE_HOST = api.deepseek.com;
+				ORACLE_MODEL = "deepseek-v4-flash";
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;

@@ -101,7 +101,10 @@ nonisolated enum InteractionSettings {
         maxTokens: 200,
         // 20 秒。用户已经等了成页判断的两三秒，再等太久会以为坏了；
         // 而这条链路后面还要花十几秒逐笔写出来，所以请求本身不该是主要的等待。
-        timeout: 20
+        timeout: 20,
+        // 不要思考过程。理由见 `OracleRequestSettings.wantsModelThinking`——
+        // 实测开着会返回空回答、贵六倍、还慢。
+        wantsModelThinking: false
     )
 
     // MARK: 回应落点（计划 E9e）
