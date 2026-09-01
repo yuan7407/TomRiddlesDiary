@@ -77,6 +77,10 @@ nonisolated struct CalibrationReport: Equatable, Sendable {
     /// 字高的粗糙估算（页面点）。见 `HandwritingCalibration.estimatedGlyphHeight`。
     let estimatedGlyphHeight: CalibrationValue
 
+    /// 换算之前的原始值：最高四分之一笔画跨度的中位数（页面点）。
+    /// 换算比例只对汉字成立，所以两个值都要报，好让人看出偏没偏。
+    let rawStrokeExtent: CalibrationValue
+
     /// 书写速度换算成「每秒多少个字高」，对应 `HandwritingFeel.inkLengthPerSecondInReferenceScales`。
     let inkSpeedInGlyphHeights: CalibrationValue
 
@@ -149,7 +153,13 @@ nonisolated enum HandwritingCalibration {
             return .measured(inkLength / inkDuration)
         }()
 
-        let glyphHeight = estimatedGlyphHeight(of: usable)
+        let sizeEstimate = HandwritingSizeEstimator.estimate(
+            from: usable.map { Polyline(points: $0.samples.map(\.point)) }
+        )
+        let glyphHeight: CalibrationValue = sizeEstimate.map { .measured($0.typical) }
+            ?? .unmeasurable("可用笔画不足 \(HandwritingSizeEstimator.minimumStrokeCount) 笔，估不出字号")
+        let rawExtent: CalibrationValue = sizeEstimate.map { .measured($0.rawStrokeExtent) }
+            ?? .unmeasurable("同上")
         let tremor = tremorAmplitude(of: usable)
         let force = forceRange(of: usable)
         let hasVaryingForce = force.map { $0.upperBound > $0.lowerBound } ?? false
@@ -167,6 +177,7 @@ nonisolated enum HandwritingCalibration {
             inkLength: inkLength,
             inkSpeedInPoints: speed,
             estimatedGlyphHeight: glyphHeight,
+            rawStrokeExtent: rawExtent,
             inkSpeedInGlyphHeights: ratio(speed, over: glyphHeight),
             tremorAmplitudeInPoints: tremor.amplitude,
             tremorAmplitudeRatio: ratio(tremor.amplitude, over: glyphHeight),
@@ -182,26 +193,6 @@ nonisolated enum HandwritingCalibration {
     }
 
     // MARK: 字有多大
-
-    /// 字高的**粗糙**估算。
-    ///
-    /// 算法本身在 `HandwritingSizeEstimator`（产品也要用它——魂写的字必须和用户一样大，
-    /// 见计划 E9c），这里只是把它的结果转成校准报告的格式。
-    /// **刻意复用而不是在这里再写一份**：同一个「用户的字有多大」出现两个答案，
-    /// 会让「量出来的字号」和「魂实际用的字号」对不上，而那种不一致查起来极难。
-    ///
-    /// 它是启发式不是测量，局限见 `HandwritingSizeEstimator` 的说明。
-    /// 报告里同时给绝对值，好让人一眼看出估算是否离谱——
-    /// 9 mm 的字在 iPad 上约 47 点，估出 200 点就说明这个估算不能用。
-    static func estimatedGlyphHeight(of traces: [PenTrace]) -> CalibrationValue {
-        let polylines = traces.map { Polyline(points: $0.samples.map(\.point)) }
-        guard let estimate = HandwritingSizeEstimator.estimate(from: polylines) else {
-            return .unmeasurable(
-                "可用笔画不足 \(HandwritingSizeEstimator.minimumStrokeCount) 笔，估不出字号"
-            )
-        }
-        return .measured(estimate.typical)
-    }
 
     // MARK: 手抖
 

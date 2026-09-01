@@ -56,9 +56,14 @@ nonisolated extension CalibrationReport {
         lines.append("")
 
         lines.append("【要先估出字有多大的】")
-        lines.append("字高估算（粗糙，取最高四分之一笔画纵向跨度的中位数）："
+        lines.append("最高四分之一笔画的跨度中位数（原始值）："
+            + rawStrokeExtent.describe(unit: "点", format: "%.1f"))
+        lines.append("字高估算（原始值 ÷ 0.49）："
             + estimatedGlyphHeight.describe(unit: "点", format: "%.1f")
             + String(format: "　当前配置按 %.1f 点", HandwritingFeel.referenceGlyphHeightInPoints))
+        lines.append("　⚠️ 那个 0.49 只对**汉字**成立（量自字形数据）。人写拉丁字母时一笔常跨过整个字高，"
+            + "比例接近 1，于是估出来会大一倍；页面上的涂鸦也会被当成很高的字。")
+        lines.append("　所以这个字高目前**只作诊断**，不用来决定魂的字号——对着原始值判断更靠得住。")
         lines.append(compare(
             "书写速度",
             measured: inkSpeedInGlyphHeights,

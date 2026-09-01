@@ -183,6 +183,46 @@ nonisolated final class HandwritingSizeEstimateTests: XCTestCase {
         XCTAssertEqual(estimate.typical, glyphSize, accuracy: glyphSize * 0.12)
     }
 
+    /// 原始跨度必须一起报出来，而且它就是换算前的那个数。
+    ///
+    /// 为什么这条重要：换算比例只对汉字成立（人写拉丁字母时一笔常跨过整个字高），
+    /// 2026-08-31 实测在一页中英混写 + 涂鸦上偏了 2.5 倍。
+    /// 只给换算后的数，偏了也看不出来；同时给原始值，人才能判断。
+    func testRawStrokeExtentIsReportedAlongsideTheConvertedHeight() throws {
+        let estimate = try XCTUnwrap(
+            HandwritingSizeEstimator.estimate(from: makeVerticalStrokes(heights: Array(repeating: 40, count: 12)))
+        )
+
+        XCTAssertEqual(estimate.rawStrokeExtent, 40, accuracy: 1e-9, "原始值就是笔画跨度本身")
+        XCTAssertEqual(
+            estimate.typical,
+            estimate.rawStrokeExtent * toGlyphHeight,
+            accuracy: 1e-9,
+            "换算值必须等于原始值除以那个比例"
+        )
+        XCTAssertGreaterThan(estimate.typical, estimate.rawStrokeExtent)
+    }
+
+    /// 钉住那次实测偏差：拉丁式的「一笔跨过整个字高」会被放大约一倍。
+    ///
+    /// 这不是 bug 而是换算比例的适用边界，写成断言是为了让边界可见——
+    /// 免得将来有人直接拿这个字高去决定魂的字号。
+    func testLatinStyleFullHeightStrokesAreInflatedByTheChineseRatio() throws {
+        // 模拟人写拉丁：每一笔都跨过整个字高（比如 l、h、y）。
+        let actualGlyphHeight = 90.0
+        let estimate = try XCTUnwrap(HandwritingSizeEstimator.estimate(
+            from: makeVerticalStrokes(heights: Array(repeating: actualGlyphHeight, count: 16))
+        ))
+
+        // 真实字高是 90，但按汉字比例换算会得到约 184。
+        XCTAssertGreaterThan(
+            estimate.typical, actualGlyphHeight * 1.8,
+            "这就是那 2 倍偏差：换算比例只对汉字成立"
+        )
+        // 而原始值是准的——所以报告里必须同时给它。
+        XCTAssertEqual(estimate.rawStrokeExtent, actualGlyphHeight, accuracy: 1e-9)
+    }
+
     // MARK: 试排（E9d）
 
     private func makeLayoutConfiguration(glyphSize: Double, lineWidth: Double) -> GlyphStrokeLayoutConfiguration {

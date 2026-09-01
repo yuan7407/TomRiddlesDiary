@@ -31,12 +31,23 @@
 //  所以部署目标降到 26，识别用 `#available` 门控，在 26 上如实报告「系统还没有这个能力」。
 //  这不是放弃 27：识别仍然要 27，只是不再拿它挡住不需要它的测量。
 //
-//  ── 为什么不缓存 `PKStrokeRecognizer` 实例（诚实说明）──
-//  以前这里存着一个实例复用，注释写的理由是「新建会重新加载语言模型，代价不小」。
-//  那句话**我从未测量过**。而它要求把一个 iPadOS 27 才存在的类型存成结构体的属性，
-//  在部署目标降到 26 之后只能靠 `AnyObject` 之类的手段绕，读起来更糟。
-//  所以现在改成每次识别时创建。若真机测出创建代价确实可观，那时再加缓存——
-//  届时也有了真实数字，而不是一句猜测。这属计划 B（性能优化）的待办。
+//  ── 为什么缓存 `PKStrokeRecognizer` 实例（2026-08-31，有实测依据了）──
+//  这件事反复过一次，记下来免得再来第三遍：
+//
+//  最初这里存着一个实例复用，理由写的是「新建会重新加载语言模型，代价不小」——
+//  那句话当时**从未测量过**。部署目标降到 26 之后，存一个 iPadOS 27 才有的类型
+//  会逼出 `AnyObject` 之类的绕法，于是改成每次识别时新建，并注明「若真机测出代价
+//  可观再加回来」。
+//
+//  证据来了：用户在模拟器上写了 30 笔，控制台刷出**约六十条**
+//  `Remote connection to handwritingd was invalidated`。每次新建识别器就要和系统的
+//  手写守护进程建一次跨进程连接，识别器一销毁连接就断——每抬一次笔来两回。
+//  这不只是日志噪声，是每写一笔都在拆建一条 XPC 连接。
+//
+//  所以恢复缓存，用一个 `@available(iOS 27, *)` 的 actor 按语言列表存。
+//  用 actor 而不是加锁的全局字典：Swift 6 下这是唯一不需要 `@unchecked Sendable`
+//  就能安全共享可变状态的做法，而 `@unchecked` 等于把并发正确性从编译器手里
+//  拿回来自己保证。
 //
 
 import Foundation
@@ -96,6 +107,33 @@ nonisolated struct HandwritingRecognition: Equatable, Sendable {
     }
 }
 
+/// 系统识别器的缓存。
+///
+/// 为什么需要它：每新建一个 `PKStrokeRecognizer` 就要和系统的手写守护进程
+/// （`handwritingd`）建一次跨进程连接，实例销毁时连接就断。实测每抬一次笔新建一个，
+/// 30 笔会刷出约六十条 `Remote connection to handwritingd was invalidated`。
+///
+/// 为什么用 actor 而不是加锁的全局字典：Swift 6 下这是唯一不需要 `@unchecked Sendable`
+/// 就能安全共享可变状态的做法。用 `@unchecked` 等于把并发正确性从编译器手里拿回来自己保证。
+///
+/// 缓存按语言列表分键：测试会构造只请求某一种语言的识别器，它们必须各自独立，
+/// 否则一条用例设的语言会污染另一条。
+@available(iOS 27, *)
+private actor SystemRecognizerCache {
+    static let shared = SystemRecognizerCache()
+
+    private var byLanguages: [String: PKStrokeRecognizer] = [:]
+
+    func recognizer(for languages: [Locale.Language]) -> PKStrokeRecognizer {
+        let key = languages.map(\.minimalIdentifier).joined(separator: "|")
+        if let existing = byLanguages[key] { return existing }
+
+        let created = PKStrokeRecognizer(preferredLanguages: languages)
+        byLanguages[key] = created
+        return created
+    }
+}
+
 /// 手写识别器。
 nonisolated struct HandwritingRecognizer: Sendable {
     /// 手写识别 API 需要的最低系统版本。写成常量而不是散落在两处 `#available` 里，
@@ -113,7 +151,8 @@ nonisolated struct HandwritingRecognizer: Sendable {
         guard #available(iOS 27, *) else {
             return .systemTooOld(requested: requestedLanguages)
         }
-        return await availability(of: PKStrokeRecognizer(preferredLanguages: requestedLanguages))
+        let recognizer = await SystemRecognizerCache.shared.recognizer(for: requestedLanguages)
+        return await availability(of: recognizer)
     }
 
     /// 识别一页手写内容。
@@ -127,8 +166,9 @@ nonisolated struct HandwritingRecognizer: Sendable {
             )
         }
 
-        // 同一个实例既用来查能力也用来识别，一次识别只创建一次。
-        let recognizer = PKStrokeRecognizer(preferredLanguages: requestedLanguages)
+        // 同一个实例既用来查能力也用来识别，而且整个 App 生命周期只有这一个
+        // （见 `SystemRecognizerCache`）：每次新建都会拆建一条到 handwritingd 的连接。
+        let recognizer = await SystemRecognizerCache.shared.recognizer(for: requestedLanguages)
         let availability = await availability(of: recognizer)
 
         // 一种可用语言都没有时不去调识别：那只会得到一个 nil，
