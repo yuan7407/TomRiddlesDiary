@@ -179,14 +179,19 @@ private struct ResponseLayoutPreview: View {
     }
 }
 
-/// 开发期预览：**真正的逐笔生长（E1）＋ 落笔中断（E3d）**。
+/// 开发期预览：**逐笔生长（E1）＋ 落笔中断（E3d）＋ 落点决策（E9e）**。
 ///
-/// 进来就把一段文字查成字形笔画、喂进笔画引擎、一笔一笔画出来；
-/// 你在纸上写一笔，重播立刻停在当时的进度上，**半截字留在页上**（决策 14）。
-/// 这是打断规则唯一能真正跑起来的地方——运行的 App 里还没有任何回应的生产者
-/// （Oracle 属计划 E6），所以那条路径在 App 里到不了。
+/// 怎么用：在纸上写点什么，停笔别动，等成页；魂就在**你刚写的那句话旁边**
+/// 一笔一笔写出一段回应（右边或者下方，位置每轮都不一样）。
+/// 回应正在长的时候你再写一笔，它立刻停在当时的进度上，**半截字留在页上**（决策 14）。
 ///
-/// 文字是假的，只存在于 Xcode 预览里。
+/// 为什么这个演示只在 Xcode 预览里、不在运行的 App 里：
+/// 里面那段回应是**写死的假文字**。真正的回应只能来自 Oracle（计划 E6），还没接。
+/// 把假回应放进 App 会让它看起来会回应而实际不会，那是伪装成功。
+/// 所以它留在预览里——这里同时也是 E3d 与 E9e 唯一能真正跑起来的地方。
+///
+/// 已知限制：`beginReply` 一次只持有一段回应，新的一段会替掉上一段（连同页面上的墨）。
+/// 「魂写过的几段都留在页上」属于翻页与页面存储的范围（计划 E3f / D），还没做。
 private struct GlyphStrokeReplayPreview: View {
     /// 中英混排 + 标点，覆盖三套字形数据（汉字数据文件、手写标点、手写拉丁字母）。
     private static let sampleResponse = "我看见你写的 hello，慢一点。"
@@ -195,6 +200,9 @@ private struct GlyphStrokeReplayPreview: View {
     @State private var uncovered: [Character] = []
     @State private var failure: String?
     @State private var size: CGSize = .zero
+
+    /// 已经回应过几轮。只用来给落点决策换种子，让每一轮的位置都不一样。
+    @State private var round: UInt64 = 0
 
     var body: some View {
         GeometryReader { geometry in
@@ -214,9 +222,14 @@ private struct GlyphStrokeReplayPreview: View {
             }
             .onAppear { size = geometry.size }
             .onChange(of: geometry.size) { _, new in size = new }
+            // 成页之后才回应，而不是一进来就画：落点要挨着「你刚写的那句话」，
+            // 所以必须等到真的有那句话。
+            .onChange(of: model.phase) { _, phase in
+                guard phase == .awaitingSoul else { return }
+                respond(in: geometry.size)
+            }
         }
         .ignoresSafeArea()
-        .task(id: size) { await build() }
     }
 
     @ViewBuilder
@@ -237,19 +250,42 @@ private struct GlyphStrokeReplayPreview: View {
         }
     }
 
-    private func build() async {
+    /// 走完一整条「回应落在哪、排成什么样、怎么长出来」的链路。
+    ///
+    /// 顺序是有讲究的：先定落点（E9e），再按落点给的行宽排版（E9d），
+    /// 最后才手绘化。反过来（先排版再找位置）就会得到一个宽度不合的文字块。
+    private func respond(in size: CGSize) {
         guard size.width > 0, size.height > 0 else { return }
+
         let margin = PageAppearance.pageMargin(for: size)
         let glyphSize = HandwritingFeel.referenceGlyphHeightInPoints
+        // 可书写区域 = 整页扣掉页边距。落点决策不认识「页边距」，由这里算好交给它。
+        let writableArea = PageRegion(
+            left: margin,
+            top: margin,
+            width: max(glyphSize, size.width - margin * 2),
+            height: max(glyphSize, size.height - margin * 2)
+        )
 
         do {
+            let placement = try ReplyPlacementFinder().place(
+                Self.sampleResponse,
+                glyphSize: glyphSize,
+                lineSpacingRatio: PageAppearance.lineSpacingRatio,
+                after: model.lastRoundRegion,
+                on: model.inkMap(writableArea: writableArea, glyphSize: glyphSize),
+                // 每轮换种子，位置才会变。同一轮内重算则得到同一个位置。
+                seed: HandwritingFeel.defaultSeed &+ round
+            )
+            round &+= 1
+
             let laidOut = try GlyphStrokeLayout().layOut(
                 Self.sampleResponse,
                 configuration: GlyphStrokeLayoutConfiguration(
                     glyphSize: glyphSize,
-                    lineWidth: max(glyphSize, size.width - margin * 2),
+                    lineWidth: placement.lineWidth,
                     lineSpacingRatio: PageAppearance.lineSpacingRatio,
-                    origin: CGPoint(x: margin, y: margin)
+                    origin: CGPoint(x: placement.origin.x, y: placement.origin.y)
                 )
             )
             let sequence = StrokePipeline().process(
@@ -258,8 +294,10 @@ private struct GlyphStrokeReplayPreview: View {
                 seed: HandwritingFeel.defaultSeed
             )
             uncovered = laidOut.uncoveredCharacters
+            failure = nil
             model.beginReply(sequence)
         } catch {
+            // 找不到空位（该翻页了）也走这里，如实显示，不硬塞一个位置。
             failure = String(describing: error)
         }
     }

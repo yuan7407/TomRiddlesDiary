@@ -85,6 +85,18 @@ nonisolated enum InteractionSettings {
     /// 改这两组数值时不要绕过它。
     static let pageCommitCheckInterval: Duration = .milliseconds(100)
 
+    // MARK: 回应落点（计划 E9e）
+
+    /// 魂这段回应写在哪——**只有这两个数需要人来定**。
+    /// 间距与扫描步长都从占用图推出，不在这里出现（理由见 `ReplyPlacement` 文件头）。
+    static let replyPlacement = ReplyPlacementConfiguration(
+        // 6 个字：再窄的一行中文读起来像竖排的窄条。与其挤在那里，不如换个位置。
+        minimumLineWidthInGlyphs: 6,
+        // 0.25 个字高：让回应不要每次都精确贴在同一个相对位置上（那样一页看起来像表格），
+        // 但幅度刻意小——它是「不那么机械」，不是「随便放」。
+        jitterInGlyphs: 0.25
+    )
+
     /// 算作句子结束的标点。中英文都要认，因为输出输入都支持中英混写。
     static let sentenceEndingMarks: Set<Character> = ["。", "．", ".", "！", "!", "？", "?", "…", "⋯"]
 

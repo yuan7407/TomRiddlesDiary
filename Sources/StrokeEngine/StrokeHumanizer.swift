@@ -496,33 +496,3 @@ nonisolated struct StrokeHumanizer: Sendable {
         precondition(configuration.penLiftDuration >= 0, "Pen lift duration cannot be negative")
     }
 }
-
-/// SplitMix64 + Box–Muller。
-/// 选它的原因：实现极短、无外部依赖、同 seed 完全可复现，
-/// 而系统 RNG 无法复现，会让手感回归测试失去意义。
-nonisolated private struct SeededRandomNumberGenerator: RandomNumberGenerator, Sendable {
-    private var state: UInt64
-
-    init(seed: UInt64) {
-        state = seed
-    }
-
-    mutating func next() -> UInt64 {
-        state &+= 0x9E3779B97F4A7C15
-        var value = state
-        value = (value ^ (value >> 30)) &* 0xBF58476D1CE4E5B9
-        value = (value ^ (value >> 27)) &* 0x94D049BB133111EB
-        return value ^ (value >> 31)
-    }
-
-    /// 标准正态噪声。取对数前夹住下界，避免 log(0) 得到无穷。
-    mutating func gaussian() -> Double {
-        let first = max(unitInterval(), Double.leastNonzeroMagnitude)
-        let second = unitInterval()
-        return sqrt(-2 * log(first)) * cos(2 * .pi * second)
-    }
-
-    private mutating func unitInterval() -> Double {
-        Double(next() >> 11) * (1.0 / 9_007_199_254_740_992.0)
-    }
-}

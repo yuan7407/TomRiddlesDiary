@@ -305,3 +305,96 @@ nonisolated final class DiaryPageModelTests: XCTestCase {
         XCTAssertEqual(model.reply?.playback, firstFreeze, "打断只发生一次，之后画面不再变")
     }
 }
+
+// MARK: - 版式（回应写在哪，计划 E9a / E9b）
+
+extension DiaryPageModelTests {
+    private var writableArea: PageRegion {
+        PageRegion(left: 40, top: 40, width: 700, height: 900)
+    }
+
+    private var glyphSize: Double { HandwritingFeel.referenceGlyphHeightInPoints }
+
+    /// 「这一轮写在哪」必须框住这一轮的笔画，而不是整页。
+    @MainActor
+    func testLastRoundRegionCoversThisRoundsStrokes() {
+        let model = makeModel()
+        XCTAssertNil(model.lastRoundRegion, "还没写过，不该有区域")
+
+        model.strokeFinished(makeDrawing(strokeCount: 3))
+
+        let region = model.lastRoundRegion
+        XCTAssertNotNil(region)
+        // makeStroke 每一笔横跨 x 40…90，第 row 行的 y 是 80 + row * 40。
+        XCTAssertEqual(region?.left ?? 0, 40, accuracy: 2)
+        XCTAssertEqual(region?.right ?? 0, 90, accuracy: 2)
+        XCTAssertEqual(region?.top ?? 0, 80, accuracy: 2)
+        XCTAssertEqual(region?.bottom ?? 0, 160, accuracy: 2)
+    }
+
+    /// 占用图必须把用户的笔画标进去，否则回应会压在字上。
+    @MainActor
+    func testInkMapMarksTheUsersStrokes() {
+        let model = makeModel()
+        let empty = model.inkMap(writableArea: writableArea, glyphSize: glyphSize)
+        XCTAssertEqual(empty.occupancy, 0, "还没写过，占用图该是空的")
+
+        model.strokeFinished(makeDrawing(strokeCount: 3))
+        let marked = model.inkMap(writableArea: writableArea, glyphSize: glyphSize)
+
+        XCTAssertGreaterThan(marked.occupancy, 0, "用户写的字没被标进占用图")
+        // 笔画所在的那块必须判为放不下。
+        XCTAssertFalse(
+            marked.canPlace(PageRegion(left: 40, top: 80, width: 50, height: 80)),
+            "笔画正上方那块居然算空的"
+        )
+    }
+
+    /// 占用图必须把**魂已经写下的回应**也标进去。
+    /// 漏掉它的后果是第二段回应压在第一段上——这条正是为那个而设。
+    @MainActor
+    func testInkMapAlsoMarksTheSoulsOwnReply() {
+        let model = makeModel()
+        let replyRegion = PageRegion(left: 300, top: 300, width: 100, height: 1)
+
+        let before = model.inkMap(writableArea: writableArea, glyphSize: glyphSize)
+        XCTAssertTrue(before.canPlace(replyRegion), "还没回应过，那块该是空的")
+
+        model.beginReply(StrokeSequence(strokes: [TimedStroke(
+            samples: [
+                StrokeSample(point: Point2D(x: 300, y: 300), pressure: 0.5),
+                StrokeSample(point: Point2D(x: 400, y: 300), pressure: 0.5),
+            ],
+            duration: 0.5
+        )]))
+
+        let after = model.inkMap(writableArea: writableArea, glyphSize: glyphSize)
+        XCTAssertFalse(after.canPlace(replyRegion), "魂自己写下的墨没被标进占用图")
+    }
+
+    /// 端到端：写完一轮之后，落点决策能给出一个挨着这一轮、且不压字的位置。
+    @MainActor
+    func testPlacementAfterARoundSitsBesideItAndAvoidsInk() throws {
+        let model = makeModel()
+        model.strokeFinished(makeDrawing(strokeCount: 3))
+
+        let round = try XCTUnwrap(model.lastRoundRegion)
+        let map = model.inkMap(writableArea: writableArea, glyphSize: glyphSize)
+
+        let placement = try ReplyPlacementFinder().place(
+            "我看见你写的 hello，慢一点。",
+            glyphSize: glyphSize,
+            lineSpacingRatio: PageAppearance.lineSpacingRatio,
+            after: round,
+            on: map,
+            seed: 3
+        )
+
+        XCTAssertTrue(map.canPlace(placement.region), "落点压到了用户的字")
+        XCTAssertTrue(placement.region.isContained(in: writableArea), "落点跑出了可书写区域")
+        XCTAssertTrue(
+            placement.slot == .rightOfWriting || placement.slot == .belowWriting,
+            "页面这么空，该挨着用户写的那句话，实际落在 \(placement.slot)"
+        )
+    }
+}
