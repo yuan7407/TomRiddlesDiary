@@ -70,12 +70,40 @@ nonisolated enum DiaryPagePhase: Equatable, Sendable {
     /// 已成页，正在读懂这一页写了什么（识别在跑）。
     case understanding
 
-    /// 读懂了，但魂还没接上。
+    /// 读懂了，文字已经交给魂，在等它说话。
     ///
-    /// 这个名字是刻意的：当前 Oracle 完全没有接入（计划 E6），所以这一步之后
-    /// **真的什么都不会发生**。叫 `.responding` 或 `.thinking` 会让代码读起来
-    /// 像是在等一个不存在的东西返回，那是伪装成功。
-    case awaitingSoul
+    /// 2026-09-01 从 `.awaitingSoul` 改名（计划 E6a）。旧名字的含义是
+    /// 「魂还没接上，这一步之后真的什么都不会发生」——那在当时是实话。
+    /// 现在真的会有东西发生了，所以名字必须跟着变：`askingSoul` 表示
+    /// **请求已经在路上**，而不是「等一个不存在的东西」。
+    case askingSoul
+
+    /// 魂正在纸上一笔一笔写。
+    case replying
+
+    /// 魂接不上，而且**如实说出是哪一种接不上**。
+    ///
+    /// 带上原因而不是合成一个「失败」：三种原因的处置完全不同
+    /// （没配 provider 要接后端、没读出字要重写、送不出去可以再试），
+    /// 合成一个会让用户按错方向去解决。
+    case soulSilent(OracleFailure)
+}
+
+extension DiaryPagePhase {
+    /// 成页**已经走完**了吗（也就是分界点已经推进、这一轮真的交出去了）。
+    ///
+    /// 给测试用：关心「轮次怎么切」的用例只需要知道成页完成了，
+    /// 不该被「这次魂回没回」的结果绑住——那是另一件事，换个 provider 就会变。
+    ///
+    /// **`.understanding` 刻意算 false**：那是成页**进行中**（识别还在跑、
+    /// 分界点还没推进）。把它算成 true 会让测试在分界点推进之前就往下走，
+    /// 于是「只读新写的笔画」这条断言拿到的是整页——这个坑本轮真踩到过一次。
+    var isCommitted: Bool {
+        switch self {
+        case .askingSoul, .replying, .soulSilent: true
+        case .nothingNew, .writing, .waiting, .aboutToRespond, .understanding: false
+        }
+    }
 }
 
 /// 魂已经写在这一页上的那段回应。
@@ -118,9 +146,20 @@ final class DiaryPageModel {
     /// 成页判断走没有悬停的那条路径，不需要兜底。
     private(set) var isPencilHovering = false
 
+    /// 可书写区域（已扣掉页边距），由界面在知道自己多大之后告诉模型。
+    ///
+    /// 为什么模型自己算不出来：页边距是界面尺寸的函数（`PageAppearance.pageMargin`），
+    /// 而模型不认识视图有多大。nil 表示界面还没报过尺寸，此时无法定落点。
+    private(set) var writableArea: PageRegion?
+
+    /// 已经回应过几轮。只用来给落点决策换种子，让每轮位置不同。
+    private var replyRound: UInt64 = 0
+
     private let reader: PencilStrokeReader
-    private let recognizer: HandwritingRecognizer
+    private let recognizer: HandwritingReading
     private let trigger: PageCommitTrigger
+    private let oracle: OracleProvider?
+    private let composer: ReplyComposer
 
     /// 最后一次抬笔的时刻，单调时钟。nil 表示笔正在纸上或还没写过。
     private var lastLift: ContinuousClock.Instant?
@@ -142,12 +181,30 @@ final class DiaryPageModel {
 
     init(
         reader: PencilStrokeReader = PencilStrokeReader(),
-        recognizer: HandwritingRecognizer = HandwritingRecognizer(),
-        trigger: PageCommitTrigger = PageCommitTrigger()
+        recognizer: HandwritingReading = HandwritingRecognizer(),
+        trigger: PageCommitTrigger = PageCommitTrigger(),
+        oracle: OracleProvider? = DiaryPageModel.defaultOracle,
+        composer: ReplyComposer = ReplyComposer()
     ) {
         self.reader = reader
         self.recognizer = recognizer
         self.trigger = trigger
+        self.oracle = oracle
+        self.composer = composer
+    }
+
+    /// 这个构建默认用哪个魂。
+    ///
+    /// **DEBUG 用假的，Release 什么都没有。** 这不是「用 Mock 冒充成功」——
+    /// 真 provider 还不存在（安全后端属计划 G），所以 Release 里魂确实接不上，
+    /// 界面会如实说。而开发期需要一个能跑的东西，否则落点、排版、手绘化、
+    /// 逐笔重播这四步永远只能在 Xcode 预览里看。
+    nonisolated static var defaultOracle: OracleProvider? {
+        #if DEBUG
+        MockOracleProvider()
+        #else
+        nil
+        #endif
     }
 
     // MARK: 版式（回应写在哪）
@@ -260,6 +317,19 @@ final class DiaryPageModel {
     func hoverChanged(_ hovering: Bool) {
         isPencilHovering = hovering
     }
+
+    /// 界面告诉模型可书写区域有多大（已扣掉页边距）。
+    ///
+    /// 由界面算而不是模型算：页边距是视图尺寸的函数，模型不认识视图。
+    /// 没有它就定不了落点，所以它是「魂能不能写」的前提之一。
+    func pageAreaChanged(_ area: PageRegion) {
+        writableArea = area
+    }
+
+    /// 魂这一轮想写但纸上写不出来的字（缺笔顺数据）。
+    ///
+    /// 非空必须让人知道：页面上凭空少字而无人知晓是最难查的一类问题。
+    private(set) var uncoveredCharacters: [Character] = []
 
     /// 开始逐笔写一段回应。
     ///
@@ -406,9 +476,85 @@ final class DiaryPageModel {
         print(debugRecognitionLine())
         #endif
 
-        // 下一步（计划 E6）：把认出来的文字交给 Oracle，拿回应，
-        // 用 `GlyphStrokeLayout` 排成笔画，装进 `reply` 开始逐笔写。
-        // 现在没有 Oracle，所以到这里就结束了——阶段名字如实说明这一点。
-        setPhase(.awaitingSoul)
+        await askSoul(strokeCount: round.strokes.count)
+    }
+
+    // MARK: 问魂（计划 E6a）
+
+    /// 把这一轮读出来的文字交给魂，拿回一段话，装配成笔画开始写。
+    ///
+    /// 这里是那条链路上原先唯一空着的一环。它上游的四步（画布 → 成页 → 识别 → 切轮次）
+    /// 和下游的四步（定落点 → 排版 → 手绘化 → 逐笔重播）早就通了。
+    ///
+    /// 每一种失败都走 `.soulSilent(原因)` 并如实显示，**绝不编一段话顶上**——
+    /// 编一段的后果是用户以为魂读了他写的东西，而实际上根本没读到。
+    private func askSoul(strokeCount: Int) async {
+        guard let oracle else {
+            // 这个构建没有配 provider。Release 当前就是这种状态，如实说。
+            setPhase(.soulSilent(.notConfigured))
+            return
+        }
+        guard let text = recognition?.text, recognition?.hasText == true else {
+            setPhase(.soulSilent(.nothingToSay))
+            return
+        }
+
+        setPhase(.askingSoul)
+
+        let spoken: OracleReply
+        do {
+            spoken = try await oracle.respond(to: OracleRequest(text: text, strokeCount: strokeCount))
+        } catch let failure as OracleFailure {
+            setPhase(.soulSilent(failure))
+            return
+        } catch {
+            // 非 OracleFailure 的错误也不能吞掉。带上类型名供开发期定位，
+            // 但不把原始错误文本给用户看——那里面可能有端点或请求细节。
+            setPhase(.soulSilent(.couldNotReach(detail: String(describing: type(of: error)))))
+            return
+        }
+
+        // 用户在等回应的时候又落笔了：这一轮作废，不要抢他正在写的位置。
+        // 判据是阶段已经不是「在问魂」了（`strokeBegan` 会把它改成 `.writing`）。
+        guard phase == .askingSoul else { return }
+
+        await writeOnPage(spoken.text)
+    }
+
+    /// 把魂说的话装配成笔画并开始逐笔写。
+    private func writeOnPage(_ text: String) async {
+        guard let writableArea else {
+            // 界面还没报过尺寸，定不了落点。这属于接线错误而不是运行时状况，
+            // 所以如实报「送不出去」而不是硬用一个猜的页面大小——
+            // 猜出来的落点会把回应画到纸外。
+            setPhase(.soulSilent(.couldNotReach(detail: "页面尺寸未知")))
+            return
+        }
+
+        // 字号：用配置里的参考字高。E9c 的估算已经能跑但实测偏 2–2.5 倍，
+        // 刻意不接（见 `ReplyComposer` 文件头）。
+        let glyphSize = HandwritingFeel.referenceGlyphHeightInPoints
+
+        do {
+            let composed = try composer.compose(
+                text,
+                glyphSize: glyphSize,
+                lineSpacingRatio: PageAppearance.lineSpacingRatio,
+                after: lastRoundRegion,
+                on: inkMap(writableArea: writableArea, glyphSize: glyphSize),
+                // 每轮换种子，落点与手抖才会变。同一轮内重算得到同一结果。
+                seed: HandwritingFeel.defaultSeed &+ replyRound
+            )
+            replyRound &+= 1
+            uncoveredCharacters = composed.uncoveredCharacters
+            beginReply(composed.sequence)
+            setPhase(.replying)
+        } catch ReplyPlacementFailure.noRoomOnThisPage {
+            // 这一页放不下了——该翻页（计划 E3f，还没做）。
+            // 明确报出来而不是硬塞一个位置：硬塞的结果是回应压在用户的字上。
+            setPhase(.soulSilent(.couldNotReach(detail: "这一页放不下了，需要翻页（E3f 未实现）")))
+        } catch {
+            setPhase(.soulSilent(.couldNotReach(detail: String(describing: error))))
+        }
     }
 }

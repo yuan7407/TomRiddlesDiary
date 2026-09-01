@@ -48,9 +48,12 @@ nonisolated final class DiaryPageModelTests: XCTestCase {
         ))
     }
 
+    /// 测成页与轮次的用例用它：**刻意不给 oracle**。
+    /// 那些用例关心的是「这一轮怎么切、什么时候收下」，
+    /// 让魂参与进来只会让断言被 provider 的行为影响。
     @MainActor
     private func makeModel() -> DiaryPageModel {
-        DiaryPageModel(trigger: fastTrigger)
+        DiaryPageModel(trigger: fastTrigger, oracle: nil)
     }
 
     /// 造一笔。落笔时刻显式传入，这样「哪一笔属于哪一轮」可以精确断言。
@@ -131,7 +134,7 @@ nonisolated final class DiaryPageModelTests: XCTestCase {
         model.strokeFinished(makeDrawing())
         XCTAssertEqual(model.phase, .waiting, "抬笔后先进入等待")
 
-        await waitUntil("成页并读懂这一页") { model.phase == .awaitingSoul }
+        await waitUntil("成页并读懂这一页") { model.phase.isCommitted }
         XCTAssertNotNil(model.recognition, "成页时必须已经识别过整页")
     }
 
@@ -144,7 +147,7 @@ nonisolated final class DiaryPageModelTests: XCTestCase {
         model.strokeFinished(makeDrawing())
         await waitUntil("经过预告期后成页") {
             if case .aboutToRespond = model.phase { sawHint = true }
-            return model.phase == .awaitingSoul
+            return model.phase.isCommitted
         }
 
         XCTAssertTrue(sawHint, "成页之前必须先给过可撤销的预告")
@@ -176,7 +179,7 @@ nonisolated final class DiaryPageModelTests: XCTestCase {
         model.strokeFinished(makeDrawing(strokeCount: 4))
         XCTAssertEqual(model.phase, .waiting, "新的一轮等待从头开始")
 
-        await waitUntil("重新等待后成页") { model.phase == .awaitingSoul }
+        await waitUntil("重新等待后成页") { model.phase.isCommitted }
     }
 
     /// 回归守卫：一整轮等待期只许发布个位数次阶段变化。
@@ -190,7 +193,7 @@ nonisolated final class DiaryPageModelTests: XCTestCase {
         let model = makeModel()
 
         model.strokeFinished(makeDrawing())
-        await waitUntil("成页") { model.phase == .awaitingSoul }
+        await waitUntil("成页") { model.phase.isCommitted }
 
         // 一轮的合法变化是：等待 → 预告 → 读懂 → 已收下，也就是 4 次。
         // 留一点余量，但绝不能是几十次。
@@ -227,7 +230,7 @@ nonisolated final class DiaryPageModelTests: XCTestCase {
         let page = makeDrawing()
 
         model.strokeFinished(page)
-        await waitUntil("第一轮成页") { model.phase == .awaitingSoul }
+        await waitUntil("第一轮成页") { model.phase.isCommitted }
 
         // 同一份内容再抬一次笔（例如用户点了一下又拿开，页面没变）。
         model.strokeBegan()
@@ -246,7 +249,7 @@ nonisolated final class DiaryPageModelTests: XCTestCase {
         let firstRound = makeDrawing(strokeCount: 3)
 
         model.strokeFinished(firstRound)
-        await waitUntil("第一轮成页") { model.phase == .awaitingSoul }
+        await waitUntil("第一轮成页") { model.phase.isCommitted }
 
         // 页面上原有三笔，再加两笔新的（落笔时刻明显更晚）。
         let base = Date().addingTimeInterval(60)

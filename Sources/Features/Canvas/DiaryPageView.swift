@@ -55,13 +55,50 @@ struct DiaryPageView: View {
                 }
 
                 if let notice = recognitionNotice, model.phase == .nothingNew {
-                    recognitionNoticeView(notice, in: geometry.size)
+                    pageNotice(notice, in: geometry.size, alignment: .top)
+                }
+
+                if case .soulSilent(let failure) = model.phase {
+                    pageNotice(soulSilentNotice(failure), in: geometry.size, alignment: .bottom)
                 }
             }
+            // 可书写区域由这里算（页边距是视图尺寸的函数，模型不认识视图）。
+            // 没有它魂定不了落点，所以一有尺寸就要报过去。
+            .onAppear { reportPageArea(geometry.size) }
+            .onChange(of: geometry.size) { _, new in reportPageArea(new) }
         }
         .ignoresSafeArea()
         .accessibilityLabel("日记页")
         .task { await model.loadRecognitionAvailability() }
+    }
+
+    private func reportPageArea(_ size: CGSize) {
+        guard size.width > 0, size.height > 0 else { return }
+        let margin = PageAppearance.pageMargin(for: size)
+        let glyph = HandwritingFeel.referenceGlyphHeightInPoints
+        model.pageAreaChanged(PageRegion(
+            left: margin,
+            top: margin,
+            // 夹一个字高的下界：比一个字还窄的可书写区域没有意义，
+            // 而 PageRegion 不接受负宽高。
+            width: max(glyph, size.width - margin * 2),
+            height: max(glyph, size.height - margin * 2)
+        ))
+    }
+
+    /// 魂接不上时纸上说什么（决策 13：只做诚实硬提示，不做假对话）。
+    ///
+    /// 为什么必须显示：渗墨、成页、识别都发生过了，用户有理由期待回应。
+    /// 什么都不说看起来像 bug；编一句「我在想…」是伪装成功。
+    ///
+    /// 缺笔顺数据的字也在这里说。它和「魂没接上」不是一回事，但都属于
+    /// 「纸上本该有的东西没出现」，放在同一处，用户才不用在两个地方找原因。
+    private func soulSilentNotice(_ failure: OracleFailure) -> String {
+        var sentence = failure.sentenceForReader
+        if !model.uncoveredCharacters.isEmpty {
+            sentence += "（另外这段里有写不出来的字：\(String(model.uncoveredCharacters))）"
+        }
+        return sentence
     }
 
     /// 落笔**之前**要告诉用户的话，没有则为 nil（计划 E4b）。
@@ -85,16 +122,29 @@ struct DiaryPageView: View {
         return "这台设备读不出\(describeNames(availability.unavailable))手写。写了也会被认成别的字符，而且不会报错。"
     }
 
-    /// 为什么不禁止书写：能读的语言照样能用（模拟器上英文就是好的），
+    /// 纸上的一行说明文字。
+    ///
+    /// 为什么识别提示不禁止书写：能读的语言照样能用（模拟器上英文就是好的），
     /// 一句话说清代价比直接不让人写更有用。
-    /// 只在这一轮还没落笔时显示（`.nothingNew`），因为它的全部价值就是「写之前」。
-    private func recognitionNoticeView(_ text: String, in size: CGSize) -> some View {
+    /// 识别提示只在这一轮还没落笔时显示（`.nothingNew`），因为它的全部价值就是「写之前」。
+    ///
+    /// 两种提示分开上下摆：识别提示在上（关于「你要写的」），魂的提示在下
+    /// （关于「已经写完的」）。同一个位置会互相盖掉。
+    private func pageNotice(
+        _ text: String,
+        in size: CGSize,
+        alignment: VerticalAlignment
+    ) -> some View {
         Text(text)
             .font(.footnote)
             .foregroundStyle(PageAppearance.ink.opacity(PageAppearance.noticeInkOpacity))
             .multilineTextAlignment(.center)
             .padding(PageAppearance.pageMargin(for: size))
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .frame(
+                maxWidth: .infinity,
+                maxHeight: .infinity,
+                alignment: alignment == .top ? .top : .bottom
+            )
             .allowsHitTesting(false)
     }
 
@@ -112,135 +162,16 @@ struct DiaryPageView: View {
 
 // MARK: - Preview
 
-#Preview("空白日记页（运行时的真实样子）") {
+#Preview("日记页（DEBUG 里魂会用假文字真的回你）") {
+    // 这一个预览就是运行时的样子，没有任何替代实现。
+    //
+    // 2026-09-01 删掉了原来那个 `GlyphStrokeReplayPreview`（计划 E6a）。
+    // 它当初存在的理由是「App 里没有任何回应的生产者，所以逐笔生长与落笔中断
+    // 只能在预览里跑」。现在 `MockOracleProvider` 让 App 自己就能走完整条链路，
+    // 那份预览就变成了同一件事的第二套实现——而 `ReplyComposer` 文件头写着
+    // 为什么不能有两套：预览里好看、App 里错位，是最难查的一类问题。
+    //
+    // DEBUG 里魂用的是**写死的假文字**（会明说，见 `MockOracleProvider`），
+    // Release 里没有 provider，纸上会如实说魂接不上。
     DiaryPageView()
-}
-
-
-#Preview("真笔画逐笔生长 + 落笔中断（E1 + E3d）") {
-    GlyphStrokeReplayPreview()
-}
-
-/// 开发期预览：**逐笔生长（E1）＋ 落笔中断（E3d）＋ 落点决策（E9e）**。
-///
-/// 怎么用：在纸上写点什么，停笔别动，等成页；魂就在**你刚写的那句话旁边**
-/// 一笔一笔写出一段回应（右边或者下方，位置每轮都不一样）。
-/// 回应正在长的时候你再写一笔，它立刻停在当时的进度上，**半截字留在页上**（决策 14）。
-///
-/// 为什么这个演示只在 Xcode 预览里、不在运行的 App 里：
-/// 里面那段回应是**写死的假文字**。真正的回应只能来自 Oracle（计划 E6），还没接。
-/// 把假回应放进 App 会让它看起来会回应而实际不会，那是伪装成功。
-/// 所以它留在预览里——这里同时也是 E3d 与 E9e 唯一能真正跑起来的地方。
-///
-/// 已知限制：`beginReply` 一次只持有一段回应，新的一段会替掉上一段（连同页面上的墨）。
-/// 「魂写过的几段都留在页上」属于翻页与页面存储的范围（计划 E3f / D），还没做。
-private struct GlyphStrokeReplayPreview: View {
-    /// 中英混排 + 标点，覆盖三套字形数据（汉字数据文件、手写标点、手写拉丁字母）。
-    private static let sampleResponse = "我看见你写的 hello，慢一点。"
-
-    @State private var model = DiaryPageModel()
-    @State private var uncovered: [Character] = []
-    @State private var failure: String?
-    @State private var size: CGSize = .zero
-
-    /// 已经回应过几轮。只用来给落点决策换种子，让每一轮的位置都不一样。
-    @State private var round: UInt64 = 0
-
-    var body: some View {
-        GeometryReader { geometry in
-            ZStack(alignment: .topLeading) {
-                HandwritingCanvas(
-                    onStrokeBegan: { model.strokeBegan() },
-                    onStrokeFinished: { model.strokeFinished($0) },
-                    onPencilHoverChanged: { model.hoverChanged($0) }
-                )
-
-                if let reply = model.reply {
-                    HandwritingReplayView(sequence: reply.sequence, playback: reply.playback)
-                        .allowsHitTesting(false)
-                }
-
-                footnote(in: geometry.size)
-            }
-            .onAppear { size = geometry.size }
-            .onChange(of: geometry.size) { _, new in size = new }
-            // 成页之后才回应，而不是一进来就画：落点要挨着「你刚写的那句话」，
-            // 所以必须等到真的有那句话。
-            .onChange(of: model.phase) { _, phase in
-                guard phase == .awaitingSoul else { return }
-                respond(in: geometry.size)
-            }
-        }
-        .ignoresSafeArea()
-    }
-
-    @ViewBuilder
-    private func footnote(in size: CGSize) -> some View {
-        if let failure {
-            Text("写不出来：\(failure)")
-                .font(.footnote)
-                .foregroundStyle(PageAppearance.ink)
-                .padding(PageAppearance.pageMargin(for: size))
-        } else if !uncovered.isEmpty {
-            // 缺字如实说出来，不让页面凭空少东西而无人知晓。
-            Text("缺笔顺数据：\(String(uncovered))")
-                .font(.caption2)
-                .foregroundStyle(PageAppearance.ink.opacity(PageAppearance.noticeInkOpacity))
-                .padding(PageAppearance.pageMargin(for: size))
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
-                .allowsHitTesting(false)
-        }
-    }
-
-    /// 走完一整条「回应落在哪、排成什么样、怎么长出来」的链路。
-    ///
-    /// 顺序是有讲究的：先定落点（E9e），再按落点给的行宽排版（E9d），
-    /// 最后才手绘化。反过来（先排版再找位置）就会得到一个宽度不合的文字块。
-    private func respond(in size: CGSize) {
-        guard size.width > 0, size.height > 0 else { return }
-
-        let margin = PageAppearance.pageMargin(for: size)
-        let glyphSize = HandwritingFeel.referenceGlyphHeightInPoints
-        // 可书写区域 = 整页扣掉页边距。落点决策不认识「页边距」，由这里算好交给它。
-        let writableArea = PageRegion(
-            left: margin,
-            top: margin,
-            width: max(glyphSize, size.width - margin * 2),
-            height: max(glyphSize, size.height - margin * 2)
-        )
-
-        do {
-            let placement = try ReplyPlacementFinder().place(
-                Self.sampleResponse,
-                glyphSize: glyphSize,
-                lineSpacingRatio: PageAppearance.lineSpacingRatio,
-                after: model.lastRoundRegion,
-                on: model.inkMap(writableArea: writableArea, glyphSize: glyphSize),
-                // 每轮换种子，位置才会变。同一轮内重算则得到同一个位置。
-                seed: HandwritingFeel.defaultSeed &+ round
-            )
-            round &+= 1
-
-            let laidOut = try GlyphStrokeLayout().layOut(
-                Self.sampleResponse,
-                configuration: GlyphStrokeLayoutConfiguration(
-                    glyphSize: glyphSize,
-                    lineWidth: placement.lineWidth,
-                    lineSpacingRatio: PageAppearance.lineSpacingRatio,
-                    origin: CGPoint(x: placement.origin.x, y: placement.origin.y)
-                )
-            )
-            let sequence = StrokePipeline().process(
-                laidOut.polylines,
-                configuration: HandwritingFeel.humanizerConfiguration(referenceScale: glyphSize),
-                seed: HandwritingFeel.defaultSeed
-            )
-            uncovered = laidOut.uncoveredCharacters
-            failure = nil
-            model.beginReply(sequence)
-        } catch {
-            // 找不到空位（该翻页了）也走这里，如实显示，不硬塞一个位置。
-            failure = String(describing: error)
-        }
-    }
 }

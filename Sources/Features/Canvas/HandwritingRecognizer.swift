@@ -135,7 +135,22 @@ private actor SystemRecognizerCache {
 }
 
 /// 手写识别器。
-nonisolated struct HandwritingRecognizer: Sendable {
+/// 「把一页手写读成文字」这件事。
+///
+/// 为什么要有这个协议（2026-09-01，计划 E6a）：
+/// 整条链路是「识别 → 问魂 → 排版 → 逐笔写」。要测后面三步，就必须能让识别
+/// **返回一个确定的字符串**——而真识别器读不出测试里造的合成笔画（几条横线不是字），
+/// 于是「问魂」那一环在测试里永远走不到，只会停在「这一页没读出字来」。
+///
+/// 也符合 `AGENTS.md` 的要求：依赖通过协议/注入提供，Oracle 可 mock、笔画源可替换。
+/// 识别是第三个需要能替换的东西，理由和前两个一样——它依赖设备上装了什么语言模型，
+/// 那是环境，不是我们能在测试里控制的。
+nonisolated protocol HandwritingReading: Sendable {
+    func recognize(_ drawing: PKDrawing) async -> HandwritingRecognition
+    func availability() async -> RecognitionAvailability
+}
+
+nonisolated struct HandwritingRecognizer: HandwritingReading, Sendable {
     /// 手写识别 API 需要的最低系统版本。写成常量而不是散落在两处 `#available` 里，
     /// 也用于给用户的提示文案——用户看到的版本号和代码里门控的必须是同一个。
     static let requiredSystemVersion = 27
