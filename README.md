@@ -30,19 +30,23 @@ Sources/                  App 源码
     PageAppearance        纸色、墨色、墨线宽度
   Features/Canvas/        写字的那张纸
   Handwriting/            文字 → 纸上位置（纯逻辑，与 StrokeEngine 平级）
-    TextLayout            CoreText 断行与定位，输出每个字的页面位置（字体路径 E8）
+    TextLayout            CoreText 断行与定位（字体路径 E8 脚手架，已被 E1 取代，待清理 H9）
     GlyphStrokeProvider   字 → 笔顺中线（归一化坐标，y 已翻转）
     GlyphStrokeLayout     笔画等宽排版 → 页面坐标里的有序笔画（笔画路径 E1）
   Features/Response/      魂的回应渲染
-    HandwrittenTextView   用字体逐字显现（E8 脚手架）
-    HandwritingReplayView 用笔画逐笔生长（E1 之后启用）
-  Resources/Fonts/        打包字体（寒蝉手拙体 v2.500）
+    HandwrittenTextView   用字体逐字显现（E8 脚手架，待清理 H9）
+    HandwritingReplayView 用笔画逐笔生长（当前正式路径）
+    ReplyPlacement        回应落在页面哪里（E9e，在 Handwriting/ 下）
+  Calibration/            用真人笔迹量手感参数（A10，只依赖 Foundation）
+  Resources/Fonts/        打包字体 3.8 MB（寒蝉手拙体 v2.500，仅 E8 脚手架在用，待清理 H9）
   Resources/GlyphStrokes/ 字形笔顺数据 + Arphic 授权正文
   StrokeEngine/           手绘化、生长几何与重播时序（纯逻辑，不依赖 UI 与配置）
     StrokeHumanizer       把几何折线变成带压感与节奏的笔画
     StrokeGrowth          一笔在某个进度下应该画到哪里（含生长中的半段）
     StrokeReplayTimeline  已过秒数 → 每笔进度，严格串行
 Tests/                    XCTest（与 Sources 同级，不打进 App）
+Evaluation/               模型评测数据（C1 评测集）。是**数据不是文档**，性质同 Tests/ 夹具，
+                          所以三份文档的职责表里没有它
 Config/                   Secrets / Persona 模板，真实值被 gitignore
 scripts/                  仓库工具：提交门禁（不属于 App，不会被打包）
 ```
@@ -225,6 +229,7 @@ Simulator 能跑不等于体验通过：压感、书写节奏与手写识别准�
 | H5 | ✅ 清理门禁脚本 5 个死路径、`.gitignore` 陈旧条目、Secrets 模板图像 key |
 | H6 | ✅ 文档去掉图像回应与素材规格，12 步计划换成 A–H |
 | H7 | ✅ 图像相关占位 key 删除 |
+| H9（删 E8 字体脚手架） | ⬜ 待用户点头。`HandwritingFont` + `TextLayout` + `HandwrittenTextView` + `TextLayoutTests` + **3.8 MB 的 `ChillZhuo.otf`**，现在只服务于一个标着「E8 脚手架」的 Xcode 预览。决策 26 本来就说它是脚手架、会被 E1 取代，而 E1 已完成——留着的代价是每个构建都多背 3.8 MB，以及「回应用什么画」有两个看起来都还活着的答案 |
 | H8 | ✅ 删除陈旧分支 `chore/pre-development-readiness`（2026-08-27，本地与远端；删除前已确认它是 `main` 的祖先，不丢提交） |
 
 ### 关于手写识别的模拟器限制
