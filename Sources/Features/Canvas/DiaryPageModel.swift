@@ -296,6 +296,45 @@ final class DiaryPageModel {
         }
     }
 
+    #if DEBUG
+    /// 开发期的一行识别结果。**只在 DEBUG 编译进来。**
+    ///
+    /// ── 这是对「日志不记日记内容」的一次刻意破例，理由要说清 ──
+    /// `AGENTS.md` 要求生产日志不出现日记内容，这条规则不变——所以它包在 `#if DEBUG` 里，
+    /// release 构建里连这行代码都不存在。
+    ///
+    /// 为什么非要有它：**不看识别出来的文字，就无法判断识别到底对不对。**
+    /// 上一轮把页脚读数删掉之后，用户在 iPadOS 27 模拟器上写了「你好」，
+    /// 而我们没有任何办法知道它被认成了什么。而这恰恰是整个输入端最要紧的未知：
+    /// 缺中文模型时识别器不返回空，它会吐出一串看起来正常的垃圾（实测「你好」→ `15.47`）。
+    /// 没有这一行，那种失败是完全无声的。
+    ///
+    /// 使用约定：只在自己的模拟器/开发机上写测试内容时看它。
+    /// 真实日记内容不该出现在任何日志里，包括 DEBUG。
+    private func debugRecognitionLine() -> String {
+        guard let recognition else { return "识别：还没有结果" }
+
+        let availability = recognition.availability
+        guard availability.systemProvidesRecognition else {
+            return "识别：这台系统没有手写识别 API（需要 iPadOS \(HandwritingRecognizer.requiredSystemVersion)）"
+        }
+
+        let active = describe(availability.active)
+        let missing = describe(availability.unavailable)
+        guard availability.isUsable else {
+            return "识别：不可用——本机没有任何请求语言的模型（缺 \(missing)）"
+        }
+        guard let text = recognition.text, recognition.hasText else {
+            return "识别：可用[\(active)] 缺失[\(missing)]　但这一轮没认出内容"
+        }
+        return "识别：可用[\(active)] 缺失[\(missing)]　认出「\(text.replacingOccurrences(of: "\n", with: "⏎"))」"
+    }
+
+    private func describe(_ languages: [Locale.Language]) -> String {
+        languages.isEmpty ? "—" : languages.map(\.minimalIdentifier).joined(separator: ",")
+    }
+    #endif
+
     /// 成页：这一轮收下了。
     ///
     /// 为什么要重新识别一次而不是复用等待期那次结果：等待期的识别可能还在跑，
@@ -324,9 +363,9 @@ final class DiaryPageModel {
         #if DEBUG
         // 计划 A10：把这一轮的真人笔迹量成数字，打进控制台。
         // 只在 DEBUG：这是开发期的量尺，不是产品功能。
-        // 刻意**不打识别出来的文字**——日志里不该出现日记内容（AGENTS.md 数据隐私）。
         // 输出格式见 `CalibrationReport.summary`，可以直接贴进对话里对照当前配置。
         print(HandwritingCalibration.analyze(PenTraceReader().read(round)).summary)
+        print(debugRecognitionLine())
         #endif
 
         // 下一步（计划 E6）：把认出来的文字交给 Oracle，拿回应，
