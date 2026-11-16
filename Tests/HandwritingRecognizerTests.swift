@@ -29,7 +29,7 @@ nonisolated final class HandwritingRecognizerTests: XCTestCase {
     private func skipUnlessSystemProvidesRecognition() throws {
         if #available(iOS 27, *) { return }
         throw XCTSkip(
-            "这台系统没有手写识别 API（需要 iPadOS \(HandwritingRecognizer.requiredSystemVersion)）。"
+            "这台系统没有手写识别 API（需要 iOS \(HandwritingRecognizer.requiredSystemVersion)）。"
             + "识别相关的断言只在 27 及以上成立。"
         )
     }

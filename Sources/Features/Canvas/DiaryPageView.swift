@@ -9,11 +9,17 @@
 //  Magic Stroke Lab 诊断界面；Lab 已整体删除，这层空转的中转也一并去掉。
 //
 //  当前真实状态（诚实说明，别对着界面猜）：
-//  你可以在纸上写字；停笔一会儿这一页会被收下并读懂（识别）。**读懂之后什么都不会发生**
-//  ——魂（Oracle）还没接入（计划 E6）。界面上不会有任何提示，因为那属于开发期脚手架，
-//  2026-08-29 已按用户要求全部清掉（成页预告横幅、「魂尚未接入」文案、页脚 DEBUG 读数）。
-//  纸上唯一保留的非内容元素是「这台设备读不出哪些语言」那句提示，它是真正的产品功能
-//  （计划 E4b）：缺语言模型时识别器会吐出看起来正常的垃圾，只能事先告知。
+//  你可以在纸上写字；停笔一会儿这一页会被收下、读懂（识别），交给魂（Oracle），
+//  魂的回应在你那句话旁边找空位逐笔写出来；写满了自动翻页（E3f）。
+//  纸上的非内容元素只有两类提示：「这台设备读不出哪些语言」（E4b：缺语言模型时
+//  识别器会吐出看起来正常的垃圾，只能事先告知）和「魂这次没能回应」的诚实说明。
+//
+//  页边距从安全区内侧量起（2026-11-16，迁到 iPhone 时实测暴露）：
+//  纸本身铺满全屏（`.ignoresSafeArea()`），但可书写区域与提示文字都要避开
+//  状态栏、灵动岛和底部横条。iPad 上状态栏很窄，短边 8% 的页边距恰好盖住它，
+//  所以原先只算页边距没出过问题；iPhone 上顶部安全区约 62 点而页边距只有约 32 点，
+//  提示文字直接压在时间和电池图标上，魂的回应也可能落到灵动岛底下。
+//  这里统一成「安全区 + 页边距」，可书写区域和提示共用 `pageInsets` 一处算法。
 //
 //  为什么不放一段示例回应在这里：
 //  2026-08-28 之前这里有一段固定示例，进页面就自动逐字写出来。它当初的用途是
@@ -29,9 +35,6 @@
 //  不好控；等回应写完再「落定」进 PKDrawing（用户就能用橡皮擦掉，决策 18）。
 //  回应层不接受点击，否则它会挡住下面的纸让人写不了字。
 //
-//  已知的未决产品问题：用户在哪写、魂在哪回应。用户已定方向（排在刚写完那句话旁边
-//  找空位），但还没有实现，所以现在两层共用整页、毫无分隔。
-//
 
 import PencilKit
 import SwiftUI
@@ -42,63 +45,74 @@ struct DiaryPageView: View {
     @State private var model = DiaryPageModel(composer: .forSoul())
 
     var body: some View {
-        GeometryReader { geometry in
-            ZStack(alignment: .topLeading) {
-                // 画布自带纸色，因此它就是这一页的纸。
-                HandwritingCanvas(
-                    drawing: model.book.current.drawing,
-                    onStrokeBegan: { model.strokeBegan() },
-                    onStrokeFinished: { model.strokeFinished($0) },
-                    onPencilHoverChanged: { model.hoverChanged($0) }
-                )
-
-                // 魂已经写下、定格留在页上的那些。纸上的东西不该自己消失——
-                // 2026-09-01 之前只画「正在写的那一段」，于是第二段一开始写、
-                // 第一段就从纸上消失了。
-                ForEach(Array(model.settledReplies.enumerated()), id: \.offset) { _, settled in
-                    HandwritingReplayView(sequence: settled.sequence, playback: settled.playback)
-                        .allowsHitTesting(false)
-                }
-
-                if let reply = model.reply {
-                    HandwritingReplayView(sequence: reply.sequence, playback: reply.playback)
-                        .allowsHitTesting(false)
-                }
-
-                if let notice = recognitionNotice, model.phase == .nothingNew {
-                    pageNotice(notice, in: geometry.size, alignment: .top)
-                }
-
-                if case .soulSilent(let failure) = model.phase {
-                    pageNotice(soulSilentNotice(failure), in: geometry.size, alignment: .bottom)
-                }
-
-                #if DEBUG
-                // 大方地说清楚：这段回应是写死的，不是模型说的。
-                //
-                // 为什么必须写在纸上而不是只写在代码注释里（2026-09-01 实测暴露）：
-                // 用户写了「Who are you?」，纸上长出一段关于阳台纸箱的话，
-                // 反馈是「回应完全不相关，像从文档里随机抓出来的」——那正是 Mock 的
-                // 设计行为，但**写死的回应和真回应在纸上长得一模一样**，
-                // 拿着 App 测的人分不清「模型很傻」和「这根本不是模型」。
-                //
-                // 只在 DEBUG。Release 里没有 provider，走的是上面那条诚实提示。
-                if model.soulSaysCannedThings, !model.settledReplies.isEmpty || model.reply != nil {
-                    pageNotice(
-                        "⚠️ DEBUG：上面那段字是写死的假回应，它不读你写的内容。真正的魂还没接上（计划 E6d，要 API key）。",
-                        in: geometry.size,
-                        alignment: .bottom
+        // 外层不忽略安全区，只用来读真实的安全区；内层铺满全屏，是纸和页面坐标系。
+        // 不能只用内层读：一个 `.ignoresSafeArea()` 的 GeometryReader 读到的安全区恒为 0
+        // （2026-11-16 在 iPhone 模拟器上实测，第一版就是这么写的，提示照样压在状态栏上）。
+        GeometryReader { screen in
+            GeometryReader { geometry in
+                let insets = pageInsets(geometry.size, safe: screen.safeAreaInsets)
+                ZStack(alignment: .topLeading) {
+                    // 画布自带纸色，因此它就是这一页的纸。
+                    HandwritingCanvas(
+                        drawing: model.book.current.drawing,
+                        onStrokeBegan: { model.strokeBegan() },
+                        onStrokeFinished: { model.strokeFinished($0) },
+                        onPencilHoverChanged: { model.hoverChanged($0) }
                     )
+
+                    // 魂已经写下、定格留在页上的那些。纸上的东西不该自己消失——
+                    // 2026-09-01 之前只画「正在写的那一段」，于是第二段一开始写、
+                    // 第一段就从纸上消失了。
+                    ForEach(Array(model.settledReplies.enumerated()), id: \.offset) { _, settled in
+                        HandwritingReplayView(sequence: settled.sequence, playback: settled.playback)
+                            .allowsHitTesting(false)
+                    }
+
+                    if let reply = model.reply {
+                        HandwritingReplayView(sequence: reply.sequence, playback: reply.playback)
+                            .allowsHitTesting(false)
+                    }
+
+                    if let notice = recognitionNotice, model.phase == .nothingNew {
+                        pageNotice(notice, insets: insets, alignment: .top)
+                    }
+
+                    if case .soulSilent(let failure) = model.phase {
+                        pageNotice(soulSilentNotice(failure), insets: insets, alignment: .bottom)
+                    }
+
+                    #if DEBUG
+                    // 大方地说清楚：这段回应是写死的，不是模型说的。
+                    //
+                    // 为什么必须写在纸上而不是只写在代码注释里（2026-09-01 实测暴露）：
+                    // 用户写了「Who are you?」，纸上长出一段关于阳台纸箱的话，
+                    // 反馈是「回应完全不相关，像从文档里随机抓出来的」——那正是 Mock 的
+                    // 设计行为，但**写死的回应和真回应在纸上长得一模一样**，
+                    // 拿着 App 测的人分不清「模型很傻」和「这根本不是模型」。
+                    //
+                    // 只在 DEBUG。Release 里没有 provider，走的是上面那条诚实提示。
+                    if model.soulSaysCannedThings, !model.settledReplies.isEmpty || model.reply != nil {
+                        pageNotice(
+                            "⚠️ DEBUG：上面那段字是写死的假回应，它不读你写的内容。真正的魂还没接上（计划 E6d，要 API key）。",
+                            insets: insets,
+                            alignment: .bottom
+                        )
+                    }
+                    #endif
                 }
-                #endif
+                // 可书写区域由这里算（页边距是视图尺寸的函数，模型不认识视图）。
+                // 没有它魂定不了落点，所以一有尺寸就要报过去。
+                .animation(pageTurn, value: model.pageTurnCount)
+                .onAppear { reportPageArea(geometry.size, insets: insets) }
+                .onChange(of: geometry.size) { _, new in
+                    reportPageArea(new, insets: pageInsets(new, safe: screen.safeAreaInsets))
+                }
+                .onChange(of: screen.safeAreaInsets) { _, newSafe in
+                    reportPageArea(geometry.size, insets: pageInsets(geometry.size, safe: newSafe))
+                }
             }
-            // 可书写区域由这里算（页边距是视图尺寸的函数，模型不认识视图）。
-            // 没有它魂定不了落点，所以一有尺寸就要报过去。
-            .animation(pageTurn, value: model.pageTurnCount)
-            .onAppear { reportPageArea(geometry.size) }
-            .onChange(of: geometry.size) { _, new in reportPageArea(new) }
+            .ignoresSafeArea()
         }
-        .ignoresSafeArea()
         .accessibilityLabel("日记页")
         .task { await model.loadRecognitionAvailability() }
     }
@@ -149,17 +163,30 @@ struct DiaryPageView: View {
         .easeInOut(duration: 0.45)
     }
 
-    private func reportPageArea(_ size: CGSize) {
-        guard size.width > 0, size.height > 0 else { return }
+    /// 纸边到可书写区域的距离：每条边 = 系统安全区 + 页边距。原因见文件头「页边距从安全区内侧量起」。
+    ///
+    /// 页边距仍按整张纸的短边算（`PageAppearance.pageMargin`），不按扣掉安全区之后的尺寸：
+    /// 那是纸的属性，不该因为状态栏多高而变。
+    private func pageInsets(_ size: CGSize, safe: EdgeInsets) -> EdgeInsets {
         let margin = PageAppearance.pageMargin(for: size)
+        return EdgeInsets(
+            top: safe.top + margin,
+            leading: safe.leading + margin,
+            bottom: safe.bottom + margin,
+            trailing: safe.trailing + margin
+        )
+    }
+
+    private func reportPageArea(_ size: CGSize, insets: EdgeInsets) {
+        guard size.width > 0, size.height > 0 else { return }
         let glyph = HandwritingFeel.referenceGlyphHeightInPoints
         model.pageAreaChanged(PageRegion(
-            left: margin,
-            top: margin,
+            left: insets.leading,
+            top: insets.top,
             // 夹一个字高的下界：比一个字还窄的可书写区域没有意义，
             // 而 PageRegion 不接受负宽高。
-            width: max(glyph, size.width - margin * 2),
-            height: max(glyph, size.height - margin * 2)
+            width: max(glyph, size.width - insets.leading - insets.trailing),
+            height: max(glyph, size.height - insets.top - insets.bottom)
         ))
     }
 
@@ -192,7 +219,7 @@ struct DiaryPageView: View {
         guard let availability = model.recognitionAvailability else { return nil }
 
         if !availability.systemProvidesRecognition {
-            return "这台设备的系统还没有手写识别（需要 iPadOS \(HandwritingRecognizer.requiredSystemVersion)）。"
+            return "这台设备的系统还没有手写识别（需要 iOS \(HandwritingRecognizer.requiredSystemVersion)）。"
                 + "写下的字暂时读不出来。"
         }
         guard !availability.unavailable.isEmpty else { return nil }
@@ -209,14 +236,14 @@ struct DiaryPageView: View {
     /// （关于「已经写完的」）。同一个位置会互相盖掉。
     private func pageNotice(
         _ text: String,
-        in size: CGSize,
+        insets: EdgeInsets,
         alignment: VerticalAlignment
     ) -> some View {
         Text(text)
             .font(.footnote)
             .foregroundStyle(PageAppearance.ink.opacity(PageAppearance.noticeInkOpacity))
             .multilineTextAlignment(.center)
-            .padding(PageAppearance.pageMargin(for: size))
+            .padding(insets)
             .frame(
                 maxWidth: .infinity,
                 maxHeight: .infinity,

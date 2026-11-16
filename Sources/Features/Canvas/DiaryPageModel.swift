@@ -474,7 +474,7 @@ final class DiaryPageModel {
 
         let availability = recognition.availability
         guard availability.systemProvidesRecognition else {
-            return "识别：这台系统没有手写识别 API（需要 iPadOS \(HandwritingRecognizer.requiredSystemVersion)）"
+            return "识别：这台系统没有手写识别 API（需要 iOS \(HandwritingRecognizer.requiredSystemVersion)）"
         }
 
         let active = describe(availability.active)
