@@ -37,7 +37,9 @@ import PencilKit
 import SwiftUI
 
 struct DiaryPageView: View {
-    @State private var model = DiaryPageModel()
+    // 魂写字用带节奏、带笔法、按意思换行的那一套装配（`ReplyComposer.forSoul()`）。
+    // 在这里换而不是改 `DiaryPageModel` 的默认值：模型的测试守的是状态机，不该跟着手感一起变期望值。
+    @State private var model = DiaryPageModel(composer: .forSoul())
 
     var body: some View {
         GeometryReader { geometry in

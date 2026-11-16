@@ -53,6 +53,19 @@
 //  打断只能被迫映射成画完，那正好把「你打断了它」这个信息抹掉。
 //  三态的定义与打断规则见 `ReplayPlayback.swift`。
 //
+//
+//  ── 2026-11-12：墨有年纪（湿 → 干）──
+//  正在写的这一段，笔尖后面拖着一小段蓝黑色的湿墨，两三秒后干成墨黑。
+//  做法：每一小段线各自算「写下去多久了」（`InkAgeTimeline`），换成湿度，再按湿度取颜色并略微加粗。
+//  三件要知道的事：
+//  · 只有 `.playing` 时才有湿墨。定格（被打断）和已写完的回应一律按干墨画：
+//    `ReplayPlayback` 的这两种状态不带「是什么时候写的」，这里无从知道墨龄；
+//    代价是被打断的那一瞬间，最后几笔会从蓝直接变黑。要做对得让 `ReplayPlayback.frozen` 多带一个时刻，
+//    那是状态机的改动，这次没有动（列在 MERGE.md 的待办里）。
+//  · 写完以后循环要多跑一个「干透时间」，否则最后几笔会永远停在蓝色上。
+//  · **这一版没有在任何设备或模拟器上跑过**（我这边没有 Xcode）。`ReplayRenderTests` 应该仍然通过：
+//    它数的是「有墨的像素」；如果它按颜色取样，需要把期望改成干墨湿墨都算。
+//
 
 import SwiftUI
 import UIKit
@@ -68,6 +81,8 @@ struct HandwritingReplayView: View {
     /// 当前该画到哪一帧。**这就是驱动重绘的东西**——它一变，body 重算，Canvas 重画。
     /// nil 表示还没算出第一帧（`.task` 立刻就会填上）。
     @State private var currentFrame: ReplayFrame?
+    /// 这段回应从开始写到现在真实过去了几秒。只有正在写的时候才有值；nil 表示一律按干墨画。
+    @State private var inkSeconds: TimeInterval?
 
     var body: some View {
         Canvas { context, _ in
@@ -78,7 +93,7 @@ struct HandwritingReplayView: View {
             //    而不是一片空白——空白会让人以为整个功能没做（这正是 2026-09-01
             //    白查一轮的症状），而静止画面一眼就能看出「画得出来，只是没动」。
             //    这不是拿默认值掩盖失败：算的是同一个时刻、同一个公式，只是同步算的。
-            render(frame: currentFrame ?? frameForNow(), in: &context)
+            render(frame: currentFrame ?? frameForNow(), inkSeconds: inkSeconds, in: &context)
         }
         .accessibilityLabel("日记之魂正在逐笔写下回应")
         // id 用 playback：被打断（playing → frozen）时循环会被取消并重新起一次，
@@ -102,6 +117,9 @@ struct HandwritingReplayView: View {
         func drawNow() -> TimeInterval {
             let elapsed = playback.elapsedSeconds(totalDuration: total)
             currentFrame = frameForNow()
+            // 高频赋值前先比较，不拿同一个值反复写（见 MEMORY「已知陷阱」）。
+            let wet: TimeInterval? = playback.isPlaying ? elapsed : nil
+            if inkSeconds != wet { inkSeconds = wet }
             return elapsed
         }
 
@@ -113,7 +131,11 @@ struct HandwritingReplayView: View {
         let interval = Duration.seconds(1 / Self.displayRefreshRate())
         while !Task.isCancelled {
             // 画完了就停。判据用「已过秒数」而不是数帧，理由见文件头。
-            guard drawNow() < total else { return }
+            // 写完以后再多画一个「干透时间」：最后几笔要有机会从蓝变黑。
+            guard drawNow() < total + BookFeel.inkDrying.dryingTime else {
+                inkSeconds = nil
+                return
+            }
             do {
                 try await Task.sleep(for: interval)
             } catch {
@@ -136,12 +158,19 @@ struct HandwritingReplayView: View {
         return Double(best)
     }
 
-    private func render(frame: ReplayFrame, in context: inout GraphicsContext) {
+    private func render(frame: ReplayFrame, inkSeconds: TimeInterval?, in context: inout GraphicsContext) {
+        // 每帧建一次（只是把各笔的起止时刻累加出来），不是每一笔建一次。
+        let ages = inkSeconds.map { seconds in (timeline: InkAgeTimeline(sequence: sequence), seconds: seconds) }
         for (strokeIndex, stroke) in sequence.strokes.enumerated() {
             let progress = frame.progressByStroke.indices.contains(strokeIndex)
                 ? frame.progressByStroke[strokeIndex]
                 : 0
-            draw(stroke: stroke, progress: progress, in: &context)
+            draw(stroke: stroke, progress: progress, in: &context) { fraction in
+                guard let ages else { return 0 }
+                return BookFeel.inkDrying.wetness(
+                    age: ages.timeline.age(ofStroke: strokeIndex, fraction: fraction, secondsSinceStart: ages.seconds)
+                )
+            }
         }
     }
 
@@ -149,31 +178,49 @@ struct HandwritingReplayView: View {
     ///
     /// 「这一笔是点还是线」由引擎判定（`PartialStroke` 的两个 case），
     /// 本视图不再自己看采样点个数——那是几何决定，不属于渲染层（计划 A7）。
-    private func draw(stroke: TimedStroke, progress: Double, in context: inout GraphicsContext) {
+    /// - Parameter wetness: 给出这一笔上某个位置（0 起笔…1 收笔）现在有多湿。
+    ///   用「沿笔画的位置」近似「这一笔里的时间」：起收笔有加减速，两者不完全相等，
+    ///   但湿墨的渐变本来就是模糊的，差这一点看不出来。
+    private func draw(
+        stroke: TimedStroke,
+        progress: Double,
+        in context: inout GraphicsContext,
+        wetness: (Double) -> Double
+    ) {
         guard let partial = StrokeGrowth.partial(of: stroke, progress: progress) else { return }
 
         switch partial {
         case .dot(let sample, let sizeFraction):
-            drawDot(sample, sizeFraction: sizeFraction, in: &context)
+            drawDot(sample, sizeFraction: sizeFraction, wetness: wetness(0), in: &context)
 
         case .line(let completeSegmentCount, let growingTip):
             for index in 0 ..< completeSegmentCount {
-                drawSegment(from: stroke.samples[index], to: stroke.samples[index + 1], in: &context)
+                drawSegment(
+                    from: stroke.samples[index],
+                    to: stroke.samples[index + 1],
+                    wetness: wetness((Double(index) + 0.5) / Double(max(1, stroke.samples.count - 1))),
+                    in: &context
+                )
             }
             if let tip = growingTip {
-                drawSegment(from: stroke.samples[completeSegmentCount], to: tip, in: &context)
+                drawSegment(from: stroke.samples[completeSegmentCount], to: tip, wetness: wetness(1), in: &context)
             }
         }
     }
 
     /// 画墨点。`sizeFraction` 是引擎算出的生长比例（计划 A7），
     /// 本视图只负责把它乘到直径上。
-    private func drawDot(_ sample: StrokeSample, sizeFraction: Double, in context: inout GraphicsContext) {
+    private func drawDot(
+        _ sample: StrokeSample,
+        sizeFraction: Double,
+        wetness: Double,
+        in context: inout GraphicsContext
+    ) {
         let center = viewPoint(sample.point)
         let width = PageAppearance.inkWidth(
             forPressure: sample.pressure,
             contact: sample.contact
-        ) * sizeFraction
+        ) * sizeFraction * (1 + BookFeel.wetInkWidthGain * wetness)
         // 尺寸还是 0 时不画：Path(ellipseIn:) 对零尺寸矩形没有意义，
         // 而且这一帧本来就该什么都看不见。
         guard width > 0 else { return }
@@ -185,13 +232,14 @@ struct HandwritingReplayView: View {
                 width: width,
                 height: width
             )),
-            with: .color(PageAppearance.ink)
+            with: .color(PageAppearance.ink(wetness: wetness))
         )
     }
 
     private func drawSegment(
         from start: StrokeSample,
         to end: StrokeSample,
+        wetness: Double,
         in context: inout GraphicsContext
     ) {
         var path = Path()
@@ -199,14 +247,14 @@ struct HandwritingReplayView: View {
         path.addLine(to: viewPoint(end.point))
         context.stroke(
             path,
-            with: .color(PageAppearance.ink),
+            with: .color(PageAppearance.ink(wetness: wetness)),
             style: StrokeStyle(
                 // 一段线用两端的平均值。接触也要一起平均——只平均压感的话，
                 // 收笔那一段会保持满宽直到最后一刻，收不出渐细（计划 A5）。
                 lineWidth: PageAppearance.inkWidth(
                     forPressure: (start.pressure + end.pressure) / 2,
                     contact: (start.contact + end.contact) / 2
-                ),
+                ) * (1 + BookFeel.wetInkWidthGain * wetness),   // 湿墨略微鼓起来一点
                 lineCap: .round,
                 lineJoin: .round
             )

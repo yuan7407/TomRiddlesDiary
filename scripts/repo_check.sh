@@ -108,6 +108,15 @@ else
   fail=1
 fi
 
+# Spread：对开版面与合页姿态的纯数据（哪边是哪一页、折缝在哪、多少度算合上）。只许 Foundation——
+# 折叠屏接口是 iOS 27.1 才有的，碰它的只有 Features/Book/BookHinge.swift 一个文件；
+# 这一层要能在没有合页的设备和测试里照常用。
+if check_layer_imports "Sources/Spread" "Foundation"; then
+  echo "  ✓ Spread 只依赖 Foundation"
+else
+  fail=1
+fi
+
 echo "================================"
 if [ "$fail" = "0" ]; then
   echo "✓ 检查通过"

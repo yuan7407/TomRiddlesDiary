@@ -83,7 +83,8 @@ nonisolated struct ChatCompletionsOracle: OracleProvider {
         // 只重试一次而不是反复重试：如果 prompt 真的没管住它，重试十次也没用，
         // 而每次重试都要花钱、花时间，还要把内容再发一遍。
         for attempt in 0 ... 1 {
-            let text = try await askOnce(trimmed, isRetry: attempt > 0)
+            // 发出去的是「他写的字 + 下笔的样子」；判断有没有话可说、身份有没有泄漏，看的仍然只是他写的字和模型的回话。
+            let text = try await askOnce(request.userContent(text: trimmed), isRetry: attempt > 0)
             guard let leak = OracleIdentityGuard.leakedName(in: text) else {
                 return OracleReply(text: text)
             }

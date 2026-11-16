@@ -39,9 +39,29 @@ nonisolated struct OracleRequest: Equatable, Sendable {
 
     /// 这一轮写了几笔。
     ///
-    /// 目前**不发给任何模型**，只用于本地判断（例如将来区分「写了一整页」和「划了两下」）。
-    /// 放在请求里是因为它属于「这一轮的事实」，而不是因为现在就要用它。
+    /// 这个字段本身仍然不发给模型，只用于本地判断。
+    /// 但从 2026-11-11 起，笔数会作为 `manner` 那句话的一部分发出去（见下）。
     let strokeCount: Int
+
+    /// 他这一轮是怎么下笔的（几笔、多久、快慢、停顿、形状）。看不出来时为 nil。
+    ///
+    /// 2026-11-11 加。手写和打字的区别不只是字：同一句话飞快写完和停了很久才写完不是一回事。
+    /// 交给魂的只是 `WritingManner` 里那几个概括量，不含坐标和图像。
+    let manner: WritingManner?
+
+    /// `manner` 有默认值，原来只传文字和笔数的调用处不用改。
+    init(text: String, strokeCount: Int, manner: WritingManner? = nil) {
+        self.text = text
+        self.strokeCount = strokeCount
+        self.manner = manner
+    }
+
+    /// 发给模型的那条用户消息：他写的字，后面另起一行是下笔的样子（如果有）。
+    /// 放在 Oracle 层而不是某一个 provider 里，是为了以后换供应商时这句话的格式不会分叉。
+    func userContent(text trimmed: String) -> String {
+        guard let manner else { return trimmed }
+        return trimmed + "\n" + manner.sentenceForSoul
+    }
 }
 
 /// 魂说的话。

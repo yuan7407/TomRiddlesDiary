@@ -526,7 +526,14 @@ final class DiaryPageModel {
         print(debugRecognitionLine())
         #endif
 
-        await askSoul(strokeCount: round.strokes.count)
+        // 他看的不只是字，还有你下笔的样子：写得急不急、中间停了多久、是不是只点了一下。
+        // 这些只来自笔画的几何与时间，不含任何文字；量不出来（比如没有时间戳）时是 nil，请求里就不带这一行。
+        let manner = WritingManner.observe(
+            PenTraceReader().read(round),
+            glyphHeight: HandwritingFeel.referenceGlyphHeightInPoints,
+            thresholds: BookFeel.writingManner
+        )
+        await askSoul(strokeCount: round.strokes.count, manner: manner)
     }
 
     // MARK: 问魂（计划 E6a）
@@ -538,7 +545,7 @@ final class DiaryPageModel {
     ///
     /// 每一种失败都走 `.soulSilent(原因)` 并如实显示，**绝不编一段话顶上**——
     /// 编一段的后果是用户以为魂读了他写的东西，而实际上根本没读到。
-    private func askSoul(strokeCount: Int) async {
+    private func askSoul(strokeCount: Int, manner: WritingManner?) async {
         guard let oracle else {
             // 这个构建没有配 provider。Release 当前就是这种状态，如实说。
             fallSilent(.notConfigured)
@@ -553,7 +560,7 @@ final class DiaryPageModel {
 
         let spoken: OracleReply
         do {
-            spoken = try await oracle.respond(to: OracleRequest(text: text, strokeCount: strokeCount))
+            spoken = try await oracle.respond(to: OracleRequest(text: text, strokeCount: strokeCount, manner: manner))
         } catch let failure as OracleFailure {
             fallSilent(failure)
             return

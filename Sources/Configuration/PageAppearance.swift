@@ -19,6 +19,11 @@
 //    选比例是因为当前只有一个尺度概念、实现最简单；等 PencilKit 接入后能看到
 //    用户自己选的笔有多粗，再决定要不要改成绝对粗细（计划 A10 一并复核）。
 //
+//  ── 2026-11-11：墨有三个年纪 ──
+//  「对开」设计里，墨的颜色表示它是什么时候写的：刚落下是蓝黑（湿），两三秒后干成墨黑，
+//  沉进纸里以后是褐色。三种墨的分量定义在这里；按比例混合的算术在 `InkTone`（不依赖 SwiftUI）。
+//  原来的 `ink` 改成由「干墨」导出，数值不变——同一个颜色不许有两处定义。
+//
 
 import SwiftUI
 
@@ -29,7 +34,40 @@ nonisolated enum PageAppearance {
     static let paper = Color(red: 0.985, green: 0.974, blue: 0.94)
 
     /// 墨色。偏暖的近黑，避免纯黑在暖色纸上显得像印刷。
-    static let ink = Color(red: 0.12, green: 0.105, blue: 0.09)
+    static let ink = dryInk.color
+
+    /// 干透的墨。数值与改动前的 `ink` 相同（偏暖的近黑）。
+    static let dryInk = InkTone(red: 0.12, green: 0.105, blue: 0.09)
+
+    /// 刚落下、还湿着的墨：蓝黑。
+    ///
+    /// 依据是真实墨水的行为：二十世纪上半叶通行的蓝黑墨水（铁胆墨水一类）刚写下时偏蓝，
+    /// 氧化变干以后才转成黑褐。数值是 2026-11-11 在网页原型里对着纸色肉眼定的，**没有真机复核**。
+    static let wetInk = InkTone(red: 0.078, green: 0.118, blue: 0.298)
+
+    /// 沉进纸里的墨：褐色。老的铁胆墨迹年深日久就是这个颜色。同样是原型里肉眼定的。
+    static let sunkInk = InkTone(red: 0.478, green: 0.361, blue: 0.235)
+
+    /// 他读你的字时，重新变湿的那一段墨。比 `wetInk` 亮一些：它压在已经干了的黑字上，
+    /// 用同一个蓝黑会完全看不出来（原型里试过）。
+    static let rereadInk = InkTone(red: 0.125, green: 0.204, blue: 0.541)
+
+    /// 从干到湿的一排颜色，逐段上色时按湿度取。
+    ///
+    /// 为什么预先算好一排而不是每段现混：一段回应有几千条小线段，每帧都要重画，
+    /// 每条线段新建一个 `Color` 是白花的开销。九档已经看不出台阶。
+    static let inkRamp: [Color] = (0 ... inkRampSteps).map { step in
+        dryInk.mixed(with: wetInk, fraction: Double(step) / Double(inkRampSteps)).color
+    }
+
+    /// 上面那排颜色分几档。纯粹的量化精度，不是手感参数。
+    private static let inkRampSteps = 8
+
+    /// 按湿度（0 干…1 湿）取墨色。
+    static func ink(wetness: Double) -> Color {
+        let clamped = wetness.isNaN ? 0 : min(1, max(0, wetness))
+        return inkRamp[Int((clamped * Double(inkRampSteps)).rounded())]
+    }
 
     /// 说明性文字（开发期读数、诚实提示、缺字告知）的墨色浓度。
     /// 统一一处的原因：这类文字散在好几个视图里，各写一个透明度必然漂移成
@@ -88,4 +126,10 @@ nonisolated enum PageAppearance {
         let pressed = lightest + min(1, max(0, pressure)) * span
         return pressed * min(1, max(0, contact))
     }
+}
+
+extension InkTone {
+    /// 换成 SwiftUI 的颜色。这一步放在这里而不是 `InkTone` 自己的文件里，
+    /// 是为了让那个文件不依赖 SwiftUI、能在任何平台上跑测试。
+    nonisolated var color: Color { Color(red: red, green: green, blue: blue) }
 }

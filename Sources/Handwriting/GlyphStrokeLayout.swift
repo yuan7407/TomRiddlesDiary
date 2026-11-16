@@ -21,9 +21,10 @@
 //  若也占满一格，英文句子里会全是空洞。所以行内位置改用**游标**推进，
 //  每个字按自己的 `advanceWidth` 往前走，不再是「第几列 × 字宽」。
 //
-//  已知缺口：中文断行规则还没有（标点不该出现在行首、不该把「」拆开）。
-//  CoreText 会做这件事，但它的字宽模型与等宽字面方格不兼容，所以这里没有。
-//  标点刚补上（E1c），这条缺口现在才真正暴露出来，需要单独处理。
+//  断行规则（2026-11-12，计划 E2a）：
+//  在哪里换行由 `LineBreaker` 决定（行首行尾禁则、英文单词不拆、可选的按意思换行），
+//  这里只负责把它分好的每一行摆到坐标上。规则和理由都在 `LineBreaking.swift`。
+//  `measure` 仍然直接调 `layOut`（决策 52），所以试排和真排用的必然是同一套换行。
 //
 //  设计原因：
 //  - 没有笔顺数据的字**如实报告**，不静默跳过。跳过会让页面上凭空少一个字，
@@ -98,9 +99,12 @@ nonisolated struct GlyphStrokeMeasurement: Equatable, Sendable {
 
 nonisolated struct GlyphStrokeLayout: Sendable {
     private let provider: GlyphStrokeProvider
+    /// 换行规则。试排与真排必须用同一个 `GlyphStrokeLayout`，这样规则才只有一份。
+    private let rules: LineBreakRules
 
-    init(provider: GlyphStrokeProvider = GlyphStrokeProvider()) {
+    init(provider: GlyphStrokeProvider = GlyphStrokeProvider(), rules: LineBreakRules = .standard) {
         self.provider = provider
+        self.rules = rules
     }
 
     /// 试排：这段文字按给定宽度排出来会占多大（计划 E9d）。
@@ -146,68 +150,70 @@ nonisolated struct GlyphStrokeLayout: Sendable {
 
         let lineHeight = configuration.glyphSize * configuration.lineSpacingRatio
 
-        var polylines: [Polyline] = []
-        var strokeCounts: [Int] = []
-        var uncovered: [Character] = []
-        // 行内游标，相对行首。改用游标而不是「第几列 × 字宽」，是因为字宽不再统一：
-        // 汉字与全角标点占满一格，西文标点只占三成（计划 E1c 起）。
-        var cursorX = 0.0
-        var line = 0
-
+        // ① 先查出每个字的字形和它占多宽。查不到的字照样占一个字宽（留出空位），并记进 uncovered。
+        var glyphs: [GlyphStrokes?] = []
+        var pieces: [LinePiece] = []
         for character in text {
             if character.isNewline {
-                line += 1
-                cursorX = 0
+                glyphs.append(nil)
+                pieces.append(LinePiece(character: character, advance: 0))
                 continue
             }
-
-            // 只吞「这个字没覆盖」，资源级故障必须继续往上抛。
-            // 用 `try?` 会把两者混成一个 nil，于是资源坏掉时表现为「所有字都没覆盖」，
-            // 把故障伪装成数据集不全，查错方向完全跑偏。
             let glyph: GlyphStrokes?
             do {
                 glyph = try provider.strokes(for: character)
             } catch GlyphStrokeLookupFailure.characterNotCovered {
+                // 单个字缺失不让整段失败：其余的字照常排，缺的字如实记下来。
                 glyph = nil
             }
-
-            // 画不出来的字也要占位，否则后面的字会挤上来，让「少了一个字」
-            // 看起来像「排版错乱」。宽度未知时按一整格算——它最可能是个汉字。
-            let advance = (glyph?.advanceWidth ?? 1) * configuration.glyphSize
-
-            // 换行：放不下就换。`cursorX > 0` 这个条件是必需的——
-            // 某个字比整行还宽时，没有它会一直换行、永远放不下，成死循环。
-            if cursorX > 0, cursorX + advance > configuration.lineWidth {
-                line += 1
-                cursorX = 0
-            }
-
-            if let glyph {
-                let originX = configuration.origin.x + cursorX
-                let originY = configuration.origin.y + Double(line) * lineHeight
-
-                for stroke in glyph.strokes {
-                    polylines.append(place(
-                        stroke,
-                        atX: originX,
-                        y: originY,
-                        size: configuration.glyphSize
-                    ))
-                }
-                strokeCounts.append(glyph.strokes.count)
-            } else {
-                uncovered.append(character)
-            }
-
-            cursorX += advance
+            glyphs.append(glyph)
+            pieces.append(LinePiece(
+                character: character,
+                advance: (glyph?.advanceWidth ?? 1) * configuration.glyphSize
+            ))
         }
+
+        // ② 分行。规则只有 `LineBreaker` 这一份。
+        let lines = LineBreaker.lines(
+            of: pieces,
+            lineWidth: configuration.lineWidth,
+            glyphSize: configuration.glyphSize,
+            rules: rules
+        )
+
+        // ③ 把每一行摆到坐标上。行内用游标推进，每个字按自己的宽度往前走。
+        var polylines: [Polyline] = []
+        var strokeCounts: [Int] = []
+        var uncovered: [Character] = []
+        for (line, indices) in lines.enumerated() {
+            var cursorX = 0.0
+            let originY = configuration.origin.y + Double(line) * lineHeight
+            for index in indices {
+                if let glyph = glyphs[index] {
+                    let originX = configuration.origin.x + cursorX
+                    for stroke in glyph.strokes {
+                        polylines.append(place(
+                            stroke,
+                            atX: originX,
+                            y: originY,
+                            size: configuration.glyphSize
+                        ))
+                    }
+                    strokeCounts.append(glyph.strokes.count)
+                } else {
+                    uncovered.append(pieces[index].character)
+                }
+                cursorX += pieces[index].advance
+            }
+        }
+        let lineCount = lines.count
 
         return LaidOutGlyphStrokes(
             polylines: polylines,
             strokeCountsPerGlyph: strokeCounts,
             uncoveredCharacters: uncovered,
-            lineCount: line + 1,
-            usedHeight: Double(line + 1) * lineHeight
+            lineCount: lineCount,
+            usedHeight: Double(lineCount) * lineHeight
         )
     }
 

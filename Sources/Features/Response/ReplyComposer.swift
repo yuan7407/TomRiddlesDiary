@@ -30,6 +30,10 @@
 //  （0.49 那个换算比例只对汉字成立），所以**刻意不接进来**——
 //  接一个已知偏两倍的值，比用一个诚实的固定值更糟。见 `HandwritingSizeEstimator` 文件头。
 //
+//  ── 2026-11-11：装配顺序末尾多了一步「节奏」──
+//  定落点 → 排版 → 手绘化（含整段 1.5 倍缩放）→ 节奏。节奏只改时间不改几何，所以放在最后；
+//  默认不加（`cadence` 为 nil），App 在 `DiaryPageView` 构造模型时显式打开，现有测试不受影响。
+//
 
 import Foundation
 
@@ -53,15 +57,50 @@ nonisolated struct ReplyComposer: Sendable {
     private let placementFinder: ReplyPlacementFinder
     private let layout: GlyphStrokeLayout
     private let pipeline: StrokePipeline
+    /// 说话的节奏（句读后的停顿、犹豫、最后一句放慢）。nil 表示不加，行为与加这一项之前完全相同。
+    private let cadence: ReplyCadence?
+    /// 楷书笔法（横轻竖重、撇出尖、捺有脚）。nil 表示不加，行为与加这一项之前完全相同。
+    private let brush: BrushSettings?
+
+    /// 笔法的两个旋钮。字高在装配时才知道，所以这里存的是比例。
+    nonisolated struct BrushSettings: Equatable, Sendable {
+        /// 0 完全不改，1 是 `BrushShaping` 里曲线的原样。
+        let strength: Double
+        /// 短于「这个比例 × 字高」的笔算作点。
+        let dotLengthInGlyphHeights: Double
+    }
 
     init(
         placementFinder: ReplyPlacementFinder = ReplyPlacementFinder(),
         layout: GlyphStrokeLayout = GlyphStrokeLayout(),
-        pipeline: StrokePipeline = StrokePipeline()
+        pipeline: StrokePipeline = StrokePipeline(),
+        cadence: ReplyCadence? = nil,
+        brush: BrushSettings? = nil
     ) {
         self.placementFinder = placementFinder
         self.layout = layout
         self.pipeline = pipeline
+        self.cadence = cadence
+        self.brush = brush
+    }
+
+    /// 魂写字用的那一套：带节奏、带笔法。
+    ///
+    /// 为什么不直接改 `init` 的默认值：三百多条现有测试都用 `ReplyComposer()`，
+    /// 它们守的是落点、排版与手感的基本行为，不该因为多了两层加工而全部改期望值。
+    /// App 里把 `DiaryPageModel` 的默认装配点换成这个就行（一行，见 MERGE.md）。
+    static func forSoul() -> ReplyComposer {
+        // 落点决策（试排）和装配（真排）必须拿同一个排版器，换行规则才只有一份（决策 52）。
+        let layout = GlyphStrokeLayout(rules: BookFeel.lineBreaking)
+        return ReplyComposer(
+            placementFinder: ReplyPlacementFinder(layout: layout),
+            layout: layout,
+            cadence: BookFeel.replyCadence,
+            brush: BrushSettings(
+                strength: BookFeel.brushStrength,
+                dotLengthInGlyphHeights: BookFeel.brushDotLengthInGlyphHeights
+            )
+        )
     }
 
     /// 把一段文字装配成纸上会长出来的笔画。
@@ -116,10 +155,75 @@ nonisolated struct ReplyComposer: Sendable {
             timeScale: HandwritingFeel.soulWritesFasterThanHumanBy
         )
 
+        // 笔法：只改粗细，不动形状和时间，所以放在手绘化之后、节奏之前都一样；
+        // 放在这里是因为它和手绘化同属「怎么写」。拉丁字母、数字和标点不是楷书，原样不动。
+        let glyphs = Self.laidOutGlyphs(of: text, uncovered: laidOut.uncoveredCharacters)
+        let shaped = brush.map { brush in
+            BrushShaping.shaped(
+                sequence,
+                configuration: BrushShapingConfiguration(
+                    strength: brush.strength,
+                    dotLength: glyphSize * brush.dotLengthInGlyphHeights,
+                    lightestWidthRatio: HandwritingFeel.inkWidthAtLightestPressureRatio
+                ),
+                plainStrokes: Self.plainStrokeIndices(
+                    glyphs: glyphs,
+                    strokeCountsPerGlyph: laidOut.strokeCountsPerGlyph
+                )
+            )
+        } ?? sequence
+
+        // 节奏排在最后：它要的是「整段缩放之后」的时间（决策 77 的 1.5 倍已经在 pipeline 里做完），
+        // 停顿表达的是他在斟酌，不跟着书写速度一起变快。
+        let paced = cadence.map { cadence in
+            cadence.apply(
+                to: shaped,
+                glyphs: glyphs,
+                strokeCountsPerGlyph: laidOut.strokeCountsPerGlyph,
+                seed: seed
+            )
+        } ?? shaped
+
         return ComposedReply(
-            sequence: sequence,
+            sequence: paced,
             placement: placement,
             uncoveredCharacters: laidOut.uncoveredCharacters
         )
+    }
+
+    /// 排版时真的排出来了的那些字，按顺序。
+    ///
+    /// `GlyphStrokeLayout.layOut` 的 `strokeCountsPerGlyph` 只给「排出来的字」记笔数：
+    /// 换行不算字，字形数据里没有的字被记进 `uncoveredCharacters` 而不记笔数。
+    /// 这里按同样的规则把原文筛一遍，两边才能一一对应。
+    /// 缺的字按它在原文里出现的先后逐个扣除（同一个缺字出现两次就扣两次）。
+    static func laidOutGlyphs(of text: String, uncovered: [Character]) -> [Character] {
+        var missing = uncovered[...]
+        var glyphs: [Character] = []
+        for character in text where !character.isNewline {
+            if let next = missing.first, next == character {
+                missing = missing.dropFirst()
+            } else {
+                glyphs.append(character)
+            }
+        }
+        return glyphs
+    }
+
+    /// 不该加楷书笔法的那些笔（按笔画下标）：拉丁字母、数字、标点的笔画。
+    ///
+    /// 判据是「这个字是不是汉字」，用 Unicode 的表意文字属性判断，而不是列一张标点表：
+    /// 列表会漏（全角、半角、将来新补的字形），漏掉的后果是英文字母被画上撇捺的粗细。
+    /// 数量对不上时返回空集——宁可全部按汉字处理，也不把笔法错位地安到别的字上。
+    static func plainStrokeIndices(glyphs: [Character], strokeCountsPerGlyph: [Int]) -> Set<Int> {
+        guard glyphs.count == strokeCountsPerGlyph.count else { return [] }
+        var plain: Set<Int> = []
+        var index = 0
+        for (glyph, count) in zip(glyphs, strokeCountsPerGlyph) {
+            let isHan = glyph.unicodeScalars.contains { $0.properties.isIdeographic }
+            if !isHan { plain.formUnion(index ..< index + count) }
+            index += count
+        }
+        return plain
     }
 }

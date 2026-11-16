@@ -1,0 +1,126 @@
+//
+//  BookFeel.swift
+//  模块：Configuration（集中配置。本文件只用 Foundation）
+//
+//  文件职责：「对开」这一层的全部经验性常数——墨多久干、他读得多快、他想的时候墨点洇多大、
+//  句读后面停多久、怎样算写得快、合页多少度算合上。
+//
+//  ── 这些数是哪来的（必须先读）──
+//  **全部未经真机验证。** 它们是 2026-11-11 在网页原型里用鼠标书写、肉眼调出来的，
+//  原型的页面按 iPhone Duo 内屏的点数等比搭建（890 × 626 点，字高 34 点约 6 毫米）。
+//  打算怎么验：真机到手后，每一项单独看——
+//  · 墨干的时间：对着真的钢笔字看，蓝黑转黑是不是这个节奏；
+//  · 阅读速度、句读停顿：让三个没见过的人各写一段，问「它读的时候你觉得快还是慢」；
+//  · 写得快 / 慢的界线：用 A10 的量尺量出真人的书写速度分布再定。
+//
+//  单位约定与仓库一致（决策 25）：长度一律写成「魂的字高」的倍数，时间用绝对秒。
+//
+
+import Foundation
+
+nonisolated enum BookFeel {
+    // MARK: 墨的年纪
+
+    /// 墨从湿到干要多久，以及变干的曲线。
+    /// 2.8 秒是原型里看着「不拖也不抢」的值；指数 1.4 让墨先慢后快地变干
+    /// （刚写下的一小段时间里明显是湿的，然后较快地转黑）。
+    static let inkDrying = InkDrying(dryingTime: 2.8, curveExponent: 1.4)
+
+    /// 湿墨比干墨粗多少（比例）。湿的时候墨在纸面上鼓着，看起来略粗。
+    static let wetInkWidthGain: Double = 0.18
+
+    // MARK: 他在读
+
+    /// 他读你的字时，那一小段「重新变湿」的墨怎么走。
+    /// 速度 25 字高/秒：一句十来个字的话大约读一秒。上下限保证太短的话也看得见、太长的话不拖。
+    static let readingSweep = ReadingSweepConfiguration(
+        speedInGlyphHeightsPerSecond: 25,
+        shortestDuration: 0.7,
+        longestDuration: 1.5,
+        tailFractionOfInk: 0.45,
+        shortestTailInGlyphHeights: 1.2,
+        longestTailInGlyphHeights: 4.4,
+        fadeOutDuration: 0.3
+    )
+
+    // MARK: 他在想
+
+    /// 笔尖停在纸上时那一点墨：起始半径、最多再洇开多少（都是字高的倍数），以及洇开的时间常数。
+    /// 含义是「停得越久洇得越大」，但有上限——真的钢笔尖停在纸上也不会无限洇下去。
+    static let restingBlotBaseRadiusRatio: Double = 0.038
+    static let restingBlotGrowthRatio: Double = 0.068
+    static let restingBlotTimeConstant: TimeInterval = 3
+
+    // MARK: 他的手有情绪
+
+    /// 句读后面停多久（秒）。逗号顿一下，句号顿得久一点，问号、省略号最久。
+    /// 这些是加在「写完整段要多久」之外的时间，不随魂的书写速度缩放：
+    /// 它们表达的是他在斟酌，不是手在移动。
+    static let replyCadence = ReplyCadence(configuration: ReplyCadenceConfiguration(
+        pauseAfter: [
+            "，": 0.16, "、": 0.12, ",": 0.14,
+            "；": 0.22, "：": 0.20,
+            "。": 0.36, "！": 0.36, ".": 0.34,
+            "？": 0.46, "…": 0.50, "—": 0.40,
+        ],
+        sentenceEnds: ["。", "！", "？", "…", "."],
+        hesitation: 0.42 ... 0.67,
+        closingSlowdown: 1.22
+    ))
+
+    // MARK: 你下笔的样子
+
+    /// 怎样算写得快、写得慢，怎样算一条线、一个圈、乱划。
+    /// 快慢的界线取魂自己书写速度（7.5 字高/秒，见 `HandwritingFeel`）的两倍和一半，
+    /// 只是一个起点，等 A10 量出真人的速度分布后要重定。
+    static let writingManner = WritingMannerThresholds(
+        fastAboveGlyphHeightsPerSecond: 15,
+        slowBelowGlyphHeightsPerSecond: 3.75,
+        pauseWorthMentioning: 1.8,
+        tapBelowGlyphHeights: 0.4,
+        loopAboveGlyphHeights: 2.6
+    )
+
+    // MARK: 断行
+
+    /// 魂的回应用的换行规则：在禁则与不拆词之外，再加上「按意思换行」。
+    ///
+    /// 0.5 的意思是：这一行排过一半、又刚好说完一句或半句，就换行。
+    /// **未经验证**：0.5 与 2.2 是在网页原型里试出来的（0.56 时短句偶尔断不开，0.4 时行太碎）。
+    /// 验证办法：拿 C1 的 11 段参考答案各排一遍，看有没有哪一段断得别扭。
+    /// 代价要知道：按意思换行会让文字块变高，页面快写满时更容易触发翻页。
+    static let lineBreaking: LineBreakRules = {
+        var rules = LineBreakRules.standard
+        rules.phraseBreakFill = 0.5
+        return rules
+    }()
+
+    // MARK: 笔法
+
+    /// 楷书笔法的强弱（0 不加，1 是 `BrushShaping` 里曲线的原样）。
+    /// **未经验证**：曲线和这个 1 都是在网页原型里对着屏幕肉眼定的，没有真人笔迹依据。
+    /// 验证办法：真机上同一段话分别用 0、0.5、1 写三遍并排看；A10 真笔校准时一并复核。
+    static let brushStrength: Double = 1
+
+    /// 短于「这个比例 × 字高」的笔当作「点」。来源同上（原型里取 0.14），未经验证。
+    static let brushDotLengthInGlyphHeights: Double = 0.14
+
+    // MARK: 触感
+
+    /// 他写字时手里的感觉（见 `HapticScore`）。强度是 0…1。
+    /// **全部未经验证**：这几个数是按「要轻到像纸，不能像通知」估的，没有在任何设备上试过。
+    /// 验证办法：真机上合着本子握在手里听他写一段，调到「感觉得到但不想甩开」为止。
+    static let haptics = HapticScoreConfiguration(
+        tapIntensity: 0.22 ... 0.5,
+        tapSharpness: 0.55,
+        dragIntensity: 0.06 ... 0.2,
+        dragSharpness: 0.18,
+        shortestDrag: 0.16
+    )
+
+    // MARK: 合页
+
+    /// 只拿得到角度、拿不到系统状态时，多少度算合上、多少度算摊平，以及防抖用的回差。
+    /// 真机上优先用系统给的状态（`DeviceHinge.Status`），这三个数只是后备。
+    static let posture = BookPostureThresholds(closedBelowDegrees: 25, flatAboveDegrees: 165, hysteresisDegrees: 6)
+}
