@@ -44,15 +44,15 @@ nonisolated struct SoulPersona: Equatable, Sendable, Decodable {
 }
 
 /// 加载 persona 失败的原因。
+///
+/// 「找不到文件」不在这里：人设是普通打包资源，缺了由 `OracleAssembly` 当场报
+/// （它是唯一知道去哪找的地方）。2026-11-16 删掉了原先的 `fileMissing`——
+/// 全仓库没有地方构造它，提示文字还指向早已删除的 `Persona.example.json`。
 nonisolated enum SoulPersonaFailure: Error, Equatable, Sendable {
-    /// 找不到人设文件。
-    case fileMissing(path: String)
     /// 文件格式不对。
     case malformed(detail: String)
     var sentenceForDeveloper: String {
         switch self {
-        case .fileMissing(let path):
-            "找不到人设文件（\(path)）。复制 Config/Persona.example.json 成 Persona.local.json 再填。"
         case .malformed(let detail):
             "人设文件读不出来：\(detail)"
         }
