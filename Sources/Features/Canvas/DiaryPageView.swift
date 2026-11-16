@@ -110,6 +110,20 @@ struct DiaryPageView: View {
                 .onChange(of: screen.safeAreaInsets) { _, newSafe in
                     reportPageArea(geometry.size, insets: pageInsets(geometry.size, safe: newSafe))
                 }
+                #if DEBUG
+                // 只观察、不接行为（M5，2026-11-16）：在 Duo 模拟器上开合合页时，
+                // 用日志核对 `BookHinge` 读到的姿态与折缝是否跟着变。
+                // 姿态怎么改变成页、折缝怎么进占用图，是对开设计的下一步，要用户先定方向；
+                // 在那之前只打日志，免得把没拍板的交互悄悄接进首屏。
+                .background(SpreadReader { spread in
+                    Color.clear.onChange(of: spread, initial: true) { _, now in
+                        print("── 对开（M5）── 屏幕 \(now.bounds) 折缝 \(now.fold.map { "\($0)" } ?? "无")")
+                    }
+                })
+                .onBookPostureChange { posture in
+                    print("── 合页（M5）── 姿态：\(posture)")
+                }
+                #endif
             }
             .ignoresSafeArea()
         }
