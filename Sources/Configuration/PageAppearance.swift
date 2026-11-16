@@ -80,7 +80,8 @@ nonisolated enum PageAppearance {
     /// 依据仍是量级推算（纸质笔记本行距通常是字高的 1.5–2 倍），待真机观感复核。
     static let lineSpacingRatio: Double = 1.6
 
-    /// 页边距，表达为页面短边的比例。0.08 → 竖持 iPad 上约 65 点。
+    /// 页边距，表达为页面短边的比例，从安全区内侧量起（见 `DiaryPageView`）。
+    /// 0.08 → Duo 外屏约 37 点、摊开的内屏约 54 点（2026-11-16 按模拟器屏幕尺寸 466 / 669 点短边算出）。
     /// 用比例而不是固定点数：换设备或分屏时留白比例不变。
     static let pageMarginRatio: Double = 0.08
 

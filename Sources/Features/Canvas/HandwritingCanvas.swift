@@ -53,8 +53,10 @@ struct HandwritingCanvas: UIViewRepresentable {
     /// 约 1 cm 内。来源：[Apple Pencil 技术规格](https://support.apple.com/en-us/111889)、
     /// [悬停距离实测](https://zenn.dev/usamik26/articles/pencil-hover?locale=en)。
     ///
-    /// 因此在**模拟器和 iPad 10 上这个回调永远不会带 true**，成页判断走的是
-    /// 没有悬停的那条路径。这是设计上接受的：悬停是加分信号，主信号不依赖它。
+    /// 这个项目现在只面向 iPhone（决策 78），没有资料表明任何 iPhone（含 Duo）支持悬停，
+    /// 模拟器也不支持，所以**实际上这个回调永远不会带 true**，成页判断走的是
+    /// 没有悬停的那条路径。留着它是因为接口成本为零、将来若有硬件支持不用改结构；
+    /// 悬停本来就只是加分信号，主信号不依赖它。
     let onPencilHoverChanged: (Bool) -> Void
 
     func makeUIView(context: Context) -> PKCanvasView {

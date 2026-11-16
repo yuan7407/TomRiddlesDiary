@@ -1,8 +1,8 @@
 # Tom Riddle's Diary
 
-iPad 端手写式 AI 对话日记本（汤姆里德尔日记本）。用户用 Apple Pencil 手写文字，一个「会回应的日记之魂」用**文字**回应，且这些文字必须以**逐笔生长的手绘笔触**写出来，像有人正在纸上写字。
+iPhone Duo（折叠屏）上的手写式 AI 对话日记本（汤姆里德尔日记本）。打开就是一本摊开的对开日记。用户用手指或笔在纸上手写，一个「会回应的日记之魂」用**文字**回应，且这些文字必须以**逐笔生长的手绘笔触**写出来，像有人正在纸上写字。
 
-> 私有项目。开发规则见 [`AGENTS.md`](./AGENTS.md)，当前状态与决策见 [`MEMORY.md`](./MEMORY.md)。项目名与占位 bundle ID 是内部代号，分发前必须换成原创品牌。
+> 私有个人项目，IP 引用是有意为之（决策 73）。开发规则见 [`AGENTS.md`](./AGENTS.md)，当前状态与决策见 [`MEMORY.md`](./MEMORY.md)。bundle ID 仍是 Xcode 占位值。
 
 ## 核心分工
 
@@ -21,94 +21,73 @@ AGENTS.md                 开发规则（唯一权威）
 README.md                 本文件：项目说明、结构、验证、计划
 MEMORY.md                 当前状态、决策、风险、未决项
 .kiro/steering/           Kiro 专项规则（Git 同步流程）
-TomRiddlesDiary.xcodeproj Xcode 工程
+TomRiddlesDiary.xcodeproj Xcode 工程（只面向 iPhone，部署目标 iOS 26）
 Sources/                  App 源码
   TomRiddlesDiaryApp      入口
   Configuration/          集中配置（经验性常量的唯一定义处）
-    PageMetrics           毫米 ↔ 页面点，全工程唯一的物理换算点
+    PageMetrics           毫米 ↔ 页面点，全工程唯一的物理换算点（Duo 460 ppi ÷ 3）
     HandwritingFeel       手感参数 + 装配 HumanizerConfiguration 的唯一入口
-    PageAppearance        纸色、墨色、墨线宽度
-  Features/Canvas/        写字的那张纸
+    PageAppearance        纸色、墨色（湿 / 干 / 沉）、墨线宽度、页边距
+    BookFeel / InkTone    对开这一批新常量：笔法、节奏、断行、墨的干湿、合页角度、触感
+  Features/Canvas/        写字的那张纸（DiaryPageView 首屏 + DiaryPageModel 状态机）
+  Features/Response/      魂的回应：ReplyComposer 装配点、HandwritingReplayView 逐笔生长
+  Features/Book/          折叠屏硬件：BookHinge（合页姿态、折缝）、WritingHaptics（触感）
   Handwriting/            文字 → 纸上位置（纯逻辑，与 StrokeEngine 平级）
-    GlyphStrokeProvider   字 → 笔顺中线（归一化坐标，y 已翻转）
-    GlyphStrokeLayout     笔画等宽排版 → 页面坐标里的有序笔画（笔画路径 E1）
-  Features/Response/      魂的回应渲染
-    HandwritingReplayView 用笔画逐笔生长（当前正式路径）
-    ReplyPlacement        回应落在页面哪里（E9e，在 Handwriting/ 下）
+    GlyphStrokeProvider   字 → 笔顺中线
+    GlyphStrokeLayout     笔画排版 → 页面坐标里的有序笔画；断行规则在 LineBreaking
+    ReplyPlacement        回应落在页面哪里（E9e）
+  StrokeEngine/           手绘化、生长几何、重播时序，以及对开的笔法 / 节奏 / 墨（纯逻辑）
+  Spread/                 对开版面与合页姿态的纯数据（只依赖 Foundation）
+  Oracle/                 魂：provider、人设加载、「下笔的样子」
   Calibration/            用真人笔迹量手感参数（A10，只依赖 Foundation）
   Resources/GlyphStrokes/  字形笔顺数据 + Arphic 授权正文
   Resources/Persona.json   魂的人设：名字、system prompt、语气。改这个就能换人设
-  StrokeEngine/           手绘化、生长几何与重播时序（纯逻辑，不依赖 UI 与配置）
-    StrokeHumanizer       把几何折线变成带压感与节奏的笔画
-    StrokeGrowth          一笔在某个进度下应该画到哪里（含生长中的半段）
-    StrokeReplayTimeline  已过秒数 → 每笔进度，严格串行
 Tests/                    XCTest（与 Sources 同级，不打进 App）
-C1-response-quality-set.md 模型评测集（11 段样张 + 参考答案 + 各家实测）。是**数据不是文档**，
-                          性质同 Tests/ 夹具，所以三份文档的职责表里没有它
+C1-response-quality-set.md 模型评测集（11 段样张 + 参考答案 + 各家实测）。是**数据不是文档**
 Config/                   Secrets.xcconfig（你的 key，一行，已 gitignore）+ Info.plist（接线用，不用碰）
-scripts/                  仓库工具：repo_check.sh（提交前检查）、check_oracle_key.sh（验 key）
+scripts/                  repo_check.sh（提交前检查）、check_oracle_key.sh（验 key）
 ```
 
-目标模块划分见 `AGENTS.md` 的「模块边界」。工程使用 Xcode 同步文件组，`Sources/` 与 `Tests/` 下新增文件自动加入对应 target，不需手改 pbxproj。
+工程使用 Xcode 同步文件组，`Sources/` 与 `Tests/` 下新增文件自动加入对应 target，不需手改 pbxproj。
 
 ## 当前状态
 
 | 项 | 状态 |
 |---|---|
-| Xcode / Simulator | ✅ 最低 **iPadOS 26**、仅 iPad、无签名 Simulator build 通过（需 Xcode 27 编译）。识别功能用 `#available(iOS 27)` 门控，26 上如实提示「系统还没有手写识别」 |
-| 笔画引擎 | ✅ 手绘化 + 压感 + 严格串行逐笔重播，264 个 XCTest 在 iOS 26.5 与 27.0 上都通过 |
-| 单位契约 | ✅ 参数有物理含义，换字号自动同比例缩放，由测试守住 |
-| 排版层 | ✅ CoreText 断行，中英混排，字位置可断言 |
-| 手写体字体 | ✅ 寒蝉手拙体 v2.500 已打包（3.9 MB OTF） |
-| 字形笔顺数据 | ✅ 9574 汉字（5.26 MB，Arphic 1999 授权）+ 手写定义的 27 个标点与 62 个拉丁字母数字。中线已用样条加密，弯笔无棱角 |
-| **逐笔生长** | ✅ 中英混排都能由引擎真正逐笔画出（Xcode Preview 可见） |
-| 手写观感 | ✅ 沿笔画的连续手抖、压感平滑并在转折处加重、起收笔加减速、笔间抬笔移动、墨点洇开。**数值仍无真机测量依据（A10）** |
-| 笔画输入源 | ✅ PencilKit 手写 → `[Polyline]`（`PencilStrokeReader`） |
-| 手写识别 | ⚙️ 已接线（`HandwritingRecognizer`）。英文在模拟器可用。**中文已由系统 Scribble 在 iPadOS 26.6 真机上验证准确**（2026-08-29，无需压感），只剩 `PKStrokeRecognizer` 能否用上同一套模型待确认 |
-| 书写节奏 | ✅ 笔间停顿可测（`WritingRhythm`） |
-| 成页触发 | ✅ 阈值由本页停顿中位数算出（不是固定秒数）+ 终止标点加速 + 渗墨预告 + 悬停延长 |
-| 落笔中断 | ✅ 用户新落笔即停住重播，半截字留在页上（`ReplayPlayback` 三态） |
-| 首屏 | ⚙️ 一张能写字的纸。停笔会成页并读懂内容，**但读懂之后什么都不会发生**（Oracle 未接） |
-| Oracle / 后端 / 加密存储 | ❌ 尚未接入。这是当前链路上唯一缺的一环 |
-
-已删除且不再回溯的路线：位图抽骨架（Skeletonizer + StrokeTracer，实机线条质量差，见 Git `e08f4c3`）、Magic Stroke Lab 诊断界面与离线夹具、图像生成与图像回应。
+| 设备 | ✅ 只面向 iPhone（决策 78），目标是 iPhone Duo。部署目标 iOS 26，识别用 `#available(iOS 27)` 门控。需 **Xcode 27.1 或更新**编译（合页接口在 27.1 SDK 里）。Duo 真机还没到手 |
+| 整条链路 | ✅ 写字 → 停笔成页 → 识别这一轮 → 魂（DeepSeek V4 Flash）→ 找空位 → 逐笔写出回应 → 落笔即中断；写满自动翻页 |
+| 魂的字 | ✅ 字形笔顺数据（9574 汉字 + 27 标点 + 62 拉丁字母数字）逐笔生长；对开包加了楷书笔法、说话节奏、湿墨变干、断行规则。**后四样还没人在纸上亲眼看过** |
+| 对开积木 | ⚙️ 合页姿态、折缝、墨被抽走、读的时候的湿痕、触感都已写好有测试，**但首屏还没用它们**；合页姿态目前只在 DEBUG 里打日志 |
+| 手写识别 | ⚙️ 英文在模拟器可用；模拟器缺中文模型。中文在 iPad 真机上用系统 Scribble 验证过准确，`PKStrokeRecognizer` 在 Duo 真机上待验 |
+| 手感数值 | ⚙️ 结构都修完了，**数值没有真人笔迹依据**（A10 量尺已就位） |
+| 存储 / 删除数据 / 安全后端 | ❌ 关掉 App 所有页都没了；没有删除数据入口；key 只在本地 Debug 构建里，分发前必须走后端（G 组） |
 
 ## 运行与验证
 
-打开 `TomRiddlesDiary.xcodeproj`，scheme 选 `TomRiddlesDiary`，选一个 iPad Simulator 后 Run。
+打开 `TomRiddlesDiary.xcodeproj`，scheme 选 `TomRiddlesDiary`，运行目标选 **iPhone Duo** 模拟器（iOS 27.3），Run。
+模拟器启动时是合上的（外屏亮）；在 Simulator 里摊开合页才是对开的内屏。DEBUG 构建会在控制台打出合页姿态与折缝。
 
-当前跑起来能看到什么：一张空白的暖米白纸。用鼠标（模拟器）或 Apple Pencil 写几个字，
-停笔一会儿后左上角会渗出一点墨——那是成页预告，此刻再写一笔就能取消。不写就会成页，
-DEBUG 读数（左下角）会显示笔数、停顿、算出来的成页阈值、当前阶段和识别结果。
-**成页之后不会有回应**，页面会如实说明魂（Oracle）还没接入。
+用鼠标在纸上写几个**英文**字（模拟器没有中文识别模型），停笔一会儿这一页会被收下，魂的回应在你那句话旁边逐笔写出来。
+没有配 key 时魂用写死的假回应，纸上会大方说明那是假的。
 
-真正的逐笔生长和落笔中断在 Xcode 预览里看：打开 `DiaryPageView.swift`，
-选预览「真笔画逐笔生长 + 落笔中断（E1 + E3d）」，进去就会逐笔写字，
-你在纸上写一笔它就停在当时那一笔的半截上。
-
-最低系统是 iPadOS 27，所以**构建必须用 Xcode 27**。命令行下用 `DEVELOPER_DIR` 指定，不必改全局 `xcode-select`：
+命令行用 `DEVELOPER_DIR` 指定 Xcode，不改全局 `xcode-select`：
 
 ```bash
-export DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer
+export DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer   # Xcode 27.3 beta
 
 # 测试（必须关闭并行：并行 clone 会触发工具自身崩溃）
 xcodebuild -project TomRiddlesDiary.xcodeproj -scheme TomRiddlesDiary \
   -configuration Debug -sdk iphonesimulator \
-  -destination 'platform=iOS Simulator,id=<iPad Simulator UUID>' \
+  -destination 'platform=iOS Simulator,name=iPhone Duo' \
   CODE_SIGNING_ALLOWED=NO -parallel-testing-enabled NO test
-
-# 构建
-xcodebuild -project TomRiddlesDiary.xcodeproj -scheme TomRiddlesDiary \
-  -configuration Debug -sdk iphonesimulator \
-  -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
 
 # 提交门禁
 bash scripts/repo_check.sh
 ```
 
-预期 `264 tests, 0 failures`（在 iPadOS 26 的模拟器上会有 4 条识别用例如实跳过） 与 `** BUILD SUCCEEDED **`。构建有一条非阻塞提示（未依赖 AppIntents，跳过其 metadata），属预期。门禁会报若干占位品牌名的 ⚠，在白名单内，属预期。
+预期 `409 tests, 0 failures` 与 `✓ 检查通过`。
 
-Simulator 能跑不等于体验通过：压感、书写节奏与手写识别准确率都必须 iPad 真机 + Apple Pencil 主观评审。
+模拟器能跑不等于体验通过：手感、书写节奏、触感、毫米换算和中文识别都必须 Duo 真机主观评审。
 
 ## 计划
 
@@ -173,6 +152,7 @@ Simulator 能跑不等于体验通过：压感、书写节奏与手写识别准�
 | E1e（比例字宽与空白） | ✅ 2026-08-29。`GlyphStrokes.advanceWidth` + 排版改用游标推进（不再是「第几列 × 字宽」）。顺带修掉一个被测试撞出来的缺口：**空格原本被报成缺字**——它不是缺字，是「有宽度、没有墨迹」的字形，报成缺字属假警报，会让真正的缺字淹没在噪声里 |
 | E1f（中线加密） | ✅ 2026-08-29。原始中线每笔平均只有 5.6 个点，下游在相邻点之间走直线，弯笔被画成折线。用**向心** Catmull-Rom 加密（穿过每个控制点，不会像均匀参数化那样超射自交）。修在数据侧而不是引擎里：棱角的根源是数据稀疏，且引擎的重采样同样处理用户笔迹，不该顺手改动用户自己写的字 |
 | E2 | ✅ 排版层完成。**注意 2026-09-01 变了**：当初这一层是 `TextLayout`（CoreText），E8 与 E1 共用；H9 删掉字体路径之后，实际在用的排版层是 `GlyphStrokeLayout`（等宽字面方格 + 游标推进字宽）。仍待做：字与字的自然不齐（大小起伏、基线抖动），属手写感范畴；以及中文断行规则 |
+| E2a（断行规则） | ✅ 2026-11-16 随对开包合入（`LineBreaking`）：句读不落行首、开引号不留行尾、英文单词不拆、可选按意思换行。`measure` 仍直接调 `layOut`，换行规则只有一份 |
 | E3 | 拆成四小步。**PencilKit 本身 iOS 13 起就有，不需要等 Xcode 27**，只有识别要等 |
 | E3a（画布） | ✅ 2026-08-28。`HandwritingCanvas` 嵌入 `PKCanvasView`，与回应层共用纸色和页面坐标系；关掉滚动缩放（一页就是一页） |
 | E3b（读笔画） | ✅ 2026-08-28。`PencilStrokeReader` 把 `PKDrawing` 读成 `[Polyline]`，用 `.distance` 等距采样；力度如实报告有无，不编造压感 |
@@ -191,7 +171,7 @@ Simulator 能跑不等于体验通过：压感、书写节奏与手写识别准�
 | E9d（试排） | ✅ 2026-08-30。`GlyphStrokeLayout.measure` 回答「按这个宽度排出来占多大」。**刻意直接调 `layOut`** 而不另写一条只算尺寸的快路径：另写就意味着换行规则有两份，迟早不一致，而不一致的症状是「试排说放得下，真画出来压到字」。宁可多算一遍 |
 | E9e（空位搜索与落点决策） | ✅ 2026-08-31。`ReplyPlacementFinder` 定落点：候选是「你那句话的右边」与「下方」，**顺序按种子随机互换**（固定优先级会让每次回应都落在同一个相对位置，一页看起来像表格），都放不下才从页顶往下扫，全放不下就报 `noRoomOnThisPage`——那就是 E3f 翻页的信号，**不硬塞位置**。两处更正了我此前的说法：一、不是「假定宽度→放不下就收窄」（收窄只会让文字块变高，更放不下），而是**每个候选位置自带可用宽度**（到页面右边缘），按那个宽度试排；二、间距**不是审美参数**，必须从占用图推出（`clearance + cellSize`），第一版凭手感取 0.3 字高，结果右边和下方几乎永远失败，回应总掉进扫描退路 |
 | E5 | 端侧提取字迹指标 |
-| **E6（Oracle 闭环）** | 拆三步。E6a 已完成，E6b/E6c 是待你拍板的产品决定 |
+| **E6（Oracle 闭环）** | E6a–E6d 已完成并实测；E6e（认出危机表达）与纸外求助层未做 |
 | E6a（协议 + Mock + 接线） | ✅ 2026-09-01，**已由用户实跑确认**。`OracleProvider` 协议 + `MockOracleProvider`（DEBUG 专用、不读输入、纸上会自己承认是假的）+ `ReplyComposer`（按「定落点 → 排版 → 手绘化」固定顺序装配），接进 `DiaryPageModel`。整条链路跑通：写字 → 成页 → 识别 → 问魂 → 定落点 → 排笔画 → 逐笔写。同轮修掉两个只有实跑才暴露的问题：`TimelineView` 在模拟器里只出一帧导致回应永远看不见（改成异步循环推进 `@State`，刷新率问屏幕）；以及**第二段回应一开始写第一段就从纸上消失**（加 `settledReplies`，被打断的那段定格在半截字上不许自己补完） |
 | E6b（危机场景怎么写出来） | ✅ 2026-09-01 用户拍板解决。**救助信息不进魂的嘴**：魂留在世界观里（短、接住、不提号码），求助途径由纸之外的一层普通系统界面给。这样不回避、不破坏魔法，而且号码不是手写出来的所以不用等一分钟 |
 | E6c（回应长度与书写速度） | ✅ 2026-09-01 用户实跑后拍板：**不动**。实测 17.9 秒与 28.5 秒两段，结论「看着还行」。注意被确认的是「时长可接受」，不是 7.5 字高/秒这个参数 |
@@ -204,8 +184,8 @@ Simulator 能跑不等于体验通过：压感、书写节奏与手写识别准�
 
 | 编号 | 内容 |
 |---|---|
-| F1 | ✅ Xcode 27.0 beta 已装（2026-08-27，`Xcode-beta.app`，与 26.6 并存） |
-| F2 | ✅ 最低系统 **iPadOS 26.0**（2026-08-30 由 27 下调）。构建仍必须用 Xcode 27。下调理由：三件待验证的事里只有识别需要 27，而 `TimelineView` 连续动画与真实 Apple Pencil 的停顿分布（A10 与 E3c 阈值的唯一依据）在 26 上就能测——不该拿 27 挡住不需要它的测量，用户也不必在唯一一台 iPad 上装 beta |
+| F1 | ✅ Xcode beta 装在 `Xcode-beta.app`，与 26.6 并存。2026-11-16 起是 **27.3 beta**（Duo 模拟器要 27.1+） |
+| F2 | ✅ 最低系统 **iOS 26.0**（2026-08-30 由 27 下调）。构建仍必须用 Xcode 27。下调理由：三件待验证的事里只有识别需要 27，而 `TimelineView` 连续动画与真实 Apple Pencil 的停顿分布（A10 与 E3c 阈值的唯一依据）在 26 上就能测——不该拿 27 挡住不需要它的测量，用户也不必在唯一一台 iPad 上装 beta |
 | F3 | ✅ **通过：PencilKit 手写识别官方支持中文**（简体、繁体、粤语，另有日韩阿俄等共 29 种，见 [WWDC 2026 session 203](https://developer.apple.com/videos/play/wwdc2026/203/?time=205)）。**但模拟器上验证不了**——详见「关于手写识别的模拟器限制」 |
 | F4 | ✅ 升 Swift 6 语言模式（2026-08-28）。App 代码零错误，测试目标三处隔离标注修正 |
 | F5 | ✅ 门禁加纯逻辑层 import 白名单（2026-08-28）。`StrokeEngine` 只许 Foundation，`Handwriting` 只许 Foundation/CoreGraphics/CoreText；已反向验证会红字失败 |
@@ -236,7 +216,17 @@ Simulator 能跑不等于体验通过：压感、书写节奏与手写识别准�
 | H6 | ✅ 文档去掉图像回应与素材规格，12 步计划换成 A–H |
 | H7 | ✅ 图像相关占位 key 删除 |
 | H9（删 E8 字体脚手架） | ✅ 2026-09-01。删掉 `HandwritingFont` + `TextLayout` + `HandwrittenTextView` + `TextLayoutTests` + **3.8 MB 的 `ChillZhuo.otf`**，以及 `DiaryPageView` 里那个字体版预览。已核实构建出来的 App 包里不再有任何 `.otf`/`.ttf`。决策 26 当初就说它是脚手架、会被 E1 取代，而 E1 已完成；留着的代价是每个构建多背 3.8 MB，以及「回应用什么画」有两个看起来都还活着的答案。`GlyphStrokeLayout` 文件头里「为什么不用 CoreText」那段理由**保留并改写**——理由依然成立，只是不再指向一个已删除的类型 |
+| H12（恢复被误删的 SoulPersonaTests） | ✅ 2026-11-16。`d7b8f70` 删 IP 门禁时误删了全部测试；以 `1c25cd2` 为底恢复，作废的 `debugOnly` 断言不恢复，并删掉没人用的 `fileMissing` |
 | H8 | ✅ 删除陈旧分支 `chore/pre-development-readiness`（2026-08-27，本地与远端；删除前已确认它是 `main` 的祖先，不丢提交） |
+
+### M 迁到 iPhone Duo（对开）
+
+| 编号 | 内容 |
+|---|---|
+| M1（合并对开代码包） | ✅ 2026-11-16。笔法、节奏、湿墨、断行、下笔的样子、对开版面与合页积木。只需给 10 个新测试类补 `nonisolated` |
+| M2（只要 iPhone） | ✅ 2026-11-16。设备范围改 iPhone；密度改成 Duo 的 460 ppi ÷ 3（对开包原用的 430 ppi 不对）；页边距从安全区内侧量起（iPhone 上提示曾压在状态栏上） |
+| M3（文档） | ✅ 2026-11-16。README / MEMORY / AGENTS 去掉 iPad 描述，MEMORY 压到 120 行 |
+| M5（合页） | ⚙️ 合上状态已在 Duo 模拟器核对（closed、外屏、无折缝）；摊开与半开待核对。按姿态改变成页、折缝进占用图，等用户定方向 |
 
 ### 关于手写识别的模拟器限制
 
@@ -254,7 +244,7 @@ Simulator 能跑不等于体验通过：压感、书写节奏与手写识别准�
 对开发的影响：
 
 - 拉丁字母的识别**现在就能在模拟器里测**，可以先把画布与识别的接线做完、跑通。
-- 中文识别的可用性与准确率**必须等真机**（iPad 装 iPadOS 27）。在那之前不得声称中文识别已验证。
+- 中文识别的可用性与准确率**必须等真机**（iPhone Duo，iOS 27.1+）。在那之前不得声称中文识别已验证。
 - 代码必须处理「当前设备没有某语言模型」这一真实情况：按 AGENTS.md 不静默兜底，要如实告知而不是假装识别成功。
 
 备选路线（万一真机上中文准确率不够）：Vision 的 `RecognizeTextRequest`，`.accurate` 实测支持 `zh`、`zh-TW`、`yue`、`yue-CN` 共 30 种语言（`.fast` 只有 6 种拉丁语）。做法是把 `PKDrawing` 渲染成图再识别。代价是丢掉笔画顺序信息，而且 Vision 面向印刷体与照片文字。
@@ -299,4 +289,4 @@ B1 → B4                          用真实规模优化性能
 C1 → C3                          情绪
 ```
 
-F3 是整条产品路线的押注点（PencilKit 中文手写识别），所以工具链一到手就先打掉它。但它不再卡住其他工作——`PencilKit` 画布、排版、字体脚手架、地基、笔触修复都不需要 iPadOS 27。
+F3 是整条产品路线的押注点（PencilKit 中文手写识别），所以工具链一到手就先打掉它。但它不再卡住其他工作——`PencilKit` 画布、排版、字体脚手架、地基、笔触修复都不需要 iOS 27。

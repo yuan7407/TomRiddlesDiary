@@ -148,7 +148,7 @@ struct HandwritingReplayView: View {
     /// 屏幕的最高刷新率。
     ///
     /// 问屏幕而不是写死，理由见文件头。
-    /// 拿不到时退回 60：那是 iPad 的最低刷新率，也是**兜底下界不是目标值**——
+    /// 拿不到时退回 60：那是不带 ProMotion 的屏幕的固定刷新率，也是**兜底下界不是目标值**——
     /// 正常情况下这个分支不该走到。宁可偏保守，也绝不能除以 0。
     @MainActor
     private static func displayRefreshRate() -> Double {

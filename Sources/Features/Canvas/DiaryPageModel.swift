@@ -171,7 +171,7 @@ final class DiaryPageModel {
     /// （`PKCanvasView` 要换掉整份 drawing）。
     private(set) var pageTurnCount = 0
 
-    /// 笔是否悬在纸上。硬件不支持悬停时恒为 false（模拟器与 iPad 10 都不支持），
+    /// 笔是否悬在纸上。硬件不支持悬停时恒为 false（模拟器与目前的 iPhone 都不支持），
     /// 成页判断走没有悬停的那条路径，不需要兜底。
     private(set) var isPencilHovering = false
 
