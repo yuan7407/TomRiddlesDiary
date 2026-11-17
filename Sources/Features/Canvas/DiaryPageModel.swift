@@ -268,6 +268,12 @@ final class DiaryPageModel {
         if let reply {
             map.mark(reply.drawnPolylines)
         }
+        // 折缝当成一道已经有墨的墙（计划 P1，用对开包的 `foldBarrier`）：
+        // 落点决策因此不会把一段话横跨在书脊上，落点规则本身一行不用改。
+        // 2026-11-17 实测之前，回应会从左页一直写到右页。
+        if let fold {
+            map.mark(SpreadGeometry(bounds: writableArea, fold: fold).foldBarrier(spacing: map.resolution.cellSize))
+        }
         return map
     }
 
@@ -350,6 +356,15 @@ final class DiaryPageModel {
     /// 没有它就定不了落点，所以它是「魂能不能写」的前提之一。
     func pageAreaChanged(_ area: PageRegion) {
         writableArea = area
+    }
+
+    /// 折缝在哪（页面坐标）。nil 表示这块屏幕没有折缝（外屏，或还不知道姿态）。
+    /// 由界面从 `SpreadGeometry.resolve` 算好传进来：模型不认识合页传感器。
+    private(set) var fold: PageRegion?
+
+    func foldChanged(_ fold: PageRegion?) {
+        guard fold != self.fold else { return }   // `@Observable` 不比较新旧值，见 MEMORY 已知陷阱
+        self.fold = fold
     }
 
     /// 这个构建里的魂是不是在说写死的话（见 `OracleProvider.producesCannedReplies`）。

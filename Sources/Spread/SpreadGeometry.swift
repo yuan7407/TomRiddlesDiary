@@ -43,6 +43,51 @@ nonisolated struct SpreadGeometry: Equatable, Sendable {
 
     var hasFold: Bool { fold != nil }
 
+    /// 这一刻的对开版面：系统报了折缝就用系统的；没报时按姿态推断（计划 P1）。
+    ///
+    /// 为什么要推断（2026-11-17 Duo 模拟器实测）：`reservedRegions(kind: .division)`
+    /// **只在半开时**给出折缝，摊平时给空。而摊平正是写字的姿态，这时候没有折缝，
+    /// 回应就会横跨书脊、书脊阴影也画不出来。
+    ///
+    /// 推断规则：合上时用的是外屏，一整块、没有折缝；没合上时用的是内屏，折缝垂直于长边、
+    /// 落在长边正中（横着拿是竖缝分左右两页，竖着拿是横缝分上下两页）。
+    /// 用姿态而不是屏幕宽高比来分辨内外屏：外屏横过来也是宽大于高，按比例判断会给外屏凭空造一道缝。
+    ///
+    /// - Parameters:
+    ///   - reported: 系统报告的折缝，没有为 nil。
+    ///   - posture: 当前姿态；nil 表示还不知道（启动的头一瞬），此时不推断，免得先画一道错的缝。
+    ///   - assumedFoldWidth: 推断时折缝的宽度（`PaperLook.foldWidthPoints`，实测 40 点）。
+    static func resolve(
+        bounds: PageRegion,
+        reported: PageRegion?,
+        posture: BookPosture?,
+        assumedFoldWidth: Double
+    ) -> SpreadGeometry {
+        if let reported {
+            return SpreadGeometry(bounds: bounds, fold: reported)
+        }
+        guard let posture, posture != .closed, assumedFoldWidth > 0 else {
+            return SpreadGeometry(bounds: bounds, fold: nil)
+        }
+        let fold: PageRegion
+        if bounds.width >= bounds.height {
+            fold = PageRegion(
+                left: bounds.left + (bounds.width - assumedFoldWidth) / 2,
+                top: bounds.top,
+                width: assumedFoldWidth,
+                height: bounds.height
+            )
+        } else {
+            fold = PageRegion(
+                left: bounds.left,
+                top: bounds.top + (bounds.height - assumedFoldWidth) / 2,
+                width: bounds.width,
+                height: assumedFoldWidth
+            )
+        }
+        return SpreadGeometry(bounds: bounds, fold: fold)
+    }
+
     /// 折缝是竖着的（把屏幕分成左右两页）还是横着的（分成上下两页）。没有折缝时为 nil。
     var foldIsVertical: Bool? {
         fold.map { $0.width <= $0.height }

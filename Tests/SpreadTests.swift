@@ -7,6 +7,8 @@
 //    而每跳一次都会取消或触发成页——所以专门测「在门槛附近抖动不换姿态」。
 //  - 折缝的处理方式是「把它在占用图上标成有墨」。这条测试直接拿真的 `PageInkMap` 验：
 //    标完以后，横跨折缝的一块地方必须放不下，两页各自的空白必须还放得下。
+//  - 摊平时系统不报折缝（2026-11-17 Duo 模拟器实测），`resolve` 要自己推断。
+//    数值用实测的屏幕：内屏 951 × 669、外屏 466 × 678、折缝 40 宽、半开时报在 x 455.5。
 //
 
 import XCTest
@@ -120,5 +122,47 @@ nonisolated final class SpreadTests: XCTestCase {
         let inset = resolution.clearance + resolution.cellSize
         XCTAssertTrue(map.isFree(PageRegion(left: 60, top: 200, width: 425 - 60 - inset, height: 60)), "左页的空白还在")
         XCTAssertTrue(map.isFree(PageRegion(left: 465 + inset, top: 200, width: 300, height: 60)), "右页的空白还在")
+    }
+
+    // MARK: 折缝推断（P1）
+
+    private let inner = PageRegion(left: 0, top: 0, width: 951, height: 669)
+    private let outer = PageRegion(left: 0, top: 0, width: 466, height: 678)
+
+    func testReportedFoldWinsOverInference() {
+        let reported = PageRegion(left: 455.5, top: 0, width: 40, height: 669)
+        let spread = SpreadGeometry.resolve(bounds: inner, reported: reported, posture: .ajar, assumedFoldWidth: 40)
+        XCTAssertEqual(spread.fold, reported)
+    }
+
+    /// 摊平时系统给空：推断出来的缝必须正好落在半开时系统报的位置上。
+    func testFlatInnerScreenInfersTheSameFoldTheSystemReportsWhenAjar() throws {
+        let spread = SpreadGeometry.resolve(bounds: inner, reported: nil, posture: .flat, assumedFoldWidth: 40)
+        let fold = try XCTUnwrap(spread.fold)
+        XCTAssertEqual(fold.left, 455.5, accuracy: 1e-9)
+        XCTAssertEqual(fold.width, 40, accuracy: 1e-9)
+        XCTAssertEqual(fold.height, 669, accuracy: 1e-9)
+        XCTAssertEqual(spread.foldIsVertical, true)
+    }
+
+    /// 合上用的是外屏，一整块纸。外屏横过来也是宽大于高，按宽高比判断会凭空造一道缝——所以按姿态判断。
+    func testClosedMeansOuterScreenWithoutFoldEvenInLandscape() {
+        let landscapeOuter = PageRegion(left: 0, top: 0, width: 678, height: 466)
+        for bounds in [outer, landscapeOuter] {
+            XCTAssertNil(SpreadGeometry.resolve(bounds: bounds, reported: nil, posture: .closed, assumedFoldWidth: 40).fold)
+        }
+    }
+
+    /// 还不知道姿态（启动的头一瞬）时不推断：宁可晚一帧画缝，也不先画一道错的。
+    func testUnknownPostureDoesNotInvent() {
+        XCTAssertNil(SpreadGeometry.resolve(bounds: inner, reported: nil, posture: nil, assumedFoldWidth: 40).fold)
+    }
+
+    /// 内屏竖着拿：缝是横的，把屏幕分成上下两页。
+    func testPortraitInnerScreenGetsAHorizontalFold() throws {
+        let portrait = PageRegion(left: 0, top: 0, width: 669, height: 951)
+        let fold = try XCTUnwrap(SpreadGeometry.resolve(bounds: portrait, reported: nil, posture: .flat, assumedFoldWidth: 40).fold)
+        XCTAssertEqual(fold.top, 455.5, accuracy: 1e-9)
+        XCTAssertEqual(fold.width, 669, accuracy: 1e-9)
     }
 }

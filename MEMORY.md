@@ -51,6 +51,7 @@
 | 74 | 必须关掉模型的思考模式（2026-09-01 实测定案） | 请求里发 `"thinking": {"type": "disabled"}`。表达意图的开关叫 `wantsModelThinking`（默认 false），供应商特有的字段名收在 provider 里 | DeepSeek V4 系列默认**开着**思考模式，而思维链**也算 `max_tokens`**。实测：给 32 token，32 个全烧在思考上，`content` 回来是**空串**、`finish_reason` 是 `length`——如果不查就会以为「模型没话说」。而且开着思考时 prompt token 从 14 涨到 93（供应商注入额外系统内容），同一个问题贵六倍还慢。而我们要的「质量」是**克制**不是推理正确性：一句 30 字的日记回应，想清楚了并不会更好。顺带给「被 token 上限截断」加了单独的错误，因为它的修法（放大上限 / 关思考）和网络问题完全不同 |
 | 75 | 「结尾要有邀请」有一个正当例外（2026-09-01 实测暴露） | 判据是「**有没有把话递回去**」，不是「有没有问号」。他只写了很短很重的一句（如「撑不住了」）时，硬塞问号是错的，留一扇门（「等你愿意时再说」）才对 | 实测里模型对「撑不住了」答的是「那就先不撑。字写到这里就够了。剩下的，等你愿意时再说。」——没有问号。我那个检查脚本先把它判成不合格，**是脚本太机械，不是模型错了**：一个只写了五个字的人最不需要的就是被问话。C1 §6 的「必须极短、必须自带退路」和「每段都要有问句」这两条本来就会打架，现在把判据改成递回去而不是问号，冲突解除 |
 | 78+79 | 设备范围改为**只要 iPhone（iPhone Duo）**（2026-11-16 用户拍板，**取代决策 23**）；「下笔的样子」发给模型（2026-11-16 用户拍板） | `TARGETED_DEVICE_FAMILY = 1`，清掉 iPad 方向设置与「iPadOS」文案。正在做（迁移计划 M0–M5，分支 `feature/duikai-merge-and-duo`）；对开包的 `WritingManner` 照默认发送（只有笔数、快慢、停顿，不含文字）；关掉只需把 `DiaryPageModel.commit()` 里的 `manner` 设成 nil | 产品载体从 iPad 换成折叠屏 iPhone Duo（对开设计）。不保留 iPad：以后要加回只是改一个设置，现在同时维护两类设备只会多一倍要测的东西；这是 AGENTS.md 里「字迹指标作情绪信号」的本意；用户知情并接受它比「只发识别文字」多一项数据 |
+| 80+81 | 网页原型是规格源（2026-11-17 用户拍板「规则冲突以网页版 artifact 为准」）；印刷体用思源宋体子集 | 原型 artifact `17m7Vat37j45NLc8NX7Sab`，计划见 README 的 P 组。被原型推翻：决策 18（魂的字可擦 → 字不删只沉进纸里，没有橡皮）、33+76 与 65（写满翻页、每段留在页上 → 一个对开只放一轮，上一段沉下去进旧页）、57–59（同页挨着放 → 隔着书脊写在对面、与你那句齐平）、61 的 25–40 字（→ 12–30 字）。原型里的替身按真机做（合页、CoreMotion、触感、系统识别、按节奏成页）。印刷体 Noto Serif SC（SIL OFL）按 GB2312 裁子集，子集外的字由系统补 | 原型是用户反复看过、认可的体验；App 和它「诸多细节相差甚远」。iOS 没有中文宋体，「手写的是他、印刷的是系统」这条规矩需要一个真正的印刷体 |
 | 77 | 魂写字比真人快 1.5 倍（用户实测后拍板） | 用 `StrokeSequence.timeScaled(by:)` **整段缩放**，不动任何手感参数 | 只把「书写速度」乘 1.5 是错的：一段回应的时长 = 落墨 + 抬笔移动 + 每次抬落笔的固定耗时，固定耗时那部分不跟着变（实测 189 笔的回应里占约 9/37 秒），于是整体快不到 1.5 倍，**而且三者的比例被改了**——那是在改手感不是改速度。整段缩放保住所有比例（相对停顿、起收笔加减速、抖动波长与速度的关系）。它是**产品手感选择不是测量结果**，和 A10 要校准的参数不是一回事 |
 
 已排除（实现过或讨论过，已删且不留死代码）：位图抽骨架路线、Python 位图/向量对比 spike、预制笔画母题库（组合太少）、图像生成与图像回应、Magic Stroke Lab 与离线夹具、渲染层的自动缩放与卡片外观。
@@ -76,7 +77,7 @@
 ## 待用户决定 / 待用户执行
 
 0. **对开迁移收尾**：合页已核对（2026-11-17，见陷阱）。待做：开 PR 合进 `main`；用户要求按网页原型把细节做到位，原型文件尚未提供给 Agent。
-1. **对开的下一步方向（必须用户定）**：一页只留一段对话（他用你的墨写，写完你的字只剩压痕，要改决策 65/33）还是维持每段都留在页上；合页姿态要不要接成页行为（合上即成页、半开不成页，`BookPosture` 已写好）；按意思换行默认开（`BookFeel.lineBreaking.phraseBreakFill`）是否保留。
+1. **对开美学按原型落地**（README P 组，P1→P11）。原型里没写、要用户定的事做到时再问。
 2. **C1 参考答案等用户审**（`C1-response-quality-set.md`）。我自己标了拿不准的两处：第 4 段「自己变响」可能偏文学；第 9 段刻意保守。
 3. 正式 bundle ID 与签名主体；何时购买 Apple Developer Program。
 4. Duo 真机到手后要验：`PKStrokeRecognizer` 中文、连续动画、真实书写停顿分布、9 mm 的字是不是 9 mm、触感强度。
@@ -106,8 +107,7 @@
 - **两个配置常量之间的隐藏耦合**（被测试撞出来的，不是事先想到的）：成页倒计时每 0.1 秒轮询，而最短预告期是 `shortestWait × hintFraction`；后者一旦短于前者，一次轮询就跨过整个预告期，「可撤销的预告」直接消失，症状只是「提示时有时无」。已加断言守住。 另：**浮点累加顺序会让「刚好画完」差一个尾数**：凡是「累加出来的总量」和「逐步推进的游标」要对得上的地方，两边必须用同一种累加方式，否则最后一笔差一点点画不完，没有任何报错。
 - 测试 target 开着 `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`：新测试类必须写成 `nonisolated final class …: XCTestCase`，否则继承来的初始化方法隔离冲突、直接编译失败（2026-11-16 对开包 10 个测试全中）。要测 `@MainActor` 类型时，隔离标在具体测试方法上。
 - **`.ignoresSafeArea()` 的 GeometryReader 读到的 `safeAreaInsets` 恒为 0**（2026-11-16 实测）：要从外层不忽略安全区的 GeometryReader 读。
-- Duo 模拟器有两块屏：截图要 `--display=primary`（外屏 1398×2034）或 `primary-1`（内屏 2007×2853）；`simctl` 不能控制合页，要在 **DeviceHub** 里手动开合（Xcode 27.3 用 DeviceHub 取代了 Simulator.app；`open -a Simulator` 会打开 26.6 的旧版，Duo 黑屏且被关机，2026-11-17 踩过）。看 App 的 `print` 用 `simctl launch --console-pty`（`--console` 重定向到文件会被缓冲成空）。
-- **Duo 的合页实测**（2026-11-17）：外屏 466×678 点；摊开的内屏是**横的** 951×669 点，折缝竖在中间。`reservedRegions(kind: .division)` **只在半开时**给出折缝（x 455.5、宽 40），摊平时给空——躲折缝不能只靠它。启动时会先误报一次 `flat`。iOS 27 的 `JSONDecoder` 接受末尾多逗号，别拿它当「坏 JSON」夹具。
+- Duo 模拟器有两块屏：截图要 `--display=primary`（外屏 1398×2034）或 `primary-1`（内屏 2007×2853）；`simctl` 不能控制合页，要在 **DeviceHub** 里手动开合（Xcode 27.3 用 DeviceHub 取代了 Simulator.app；`open -a Simulator` 会打开 26.6 的旧版，Duo 黑屏且被关机，2026-11-17 踩过）。看 App 的 `print` 用 `simctl launch --console-pty`（`--console` 重定向到文件会被缓冲成空）。 **Duo 的合页实测**（2026-11-17）：外屏 466×678 点；摊开的内屏是**横的** 951×669 点，折缝竖在中间。`reservedRegions(kind: .division)` **只在半开时**给出折缝（x 455.5、宽 40），摊平时给空——躲折缝不能只靠它。启动时会先误报一次 `flat`。iOS 27 的 `JSONDecoder` 接受末尾多逗号，别拿它当「坏 JSON」夹具。
 - 两条来自系统的日志噪声，不是 bug：`Invalid reflowable tokens count` / `Skipping adding principal lines to token` 来自系统的 `handwritingd`；`UIKitHoverGestureRecognizer ... has been in possible phase for N seconds` 是因为当前所有可用硬件都不支持悬停，识别器永远停在 possible 阶段。 Xcode 26.6 并行 test clone 触发 `DVTiPhoneSimulator` assertion → 测试关闭并行。工程用 objectVersion 77 同步文件组，`Sources/`、`Tests/` 下新增文件自动入 target。kiro-pet 已迁至 `110_KiroPet`，不得放回本仓库。
 
 ## 历史（精简）

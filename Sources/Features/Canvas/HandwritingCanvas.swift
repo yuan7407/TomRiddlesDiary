@@ -9,8 +9,8 @@
 //  - 用 PencilKit 而不是自己接触摸事件：低延迟绘制、笔尖预测、压感、倾斜、
 //    橡皮、撤销，这些都是 Apple 已经做好且做得比自己写好的部分。
 //    自己写只会得到一个更差的画笔，还要维护。
-//  - 背景色取自 `PageAppearance.paper`，与回应渲染层共用同一个值。
-//    这是 D5 埋下的伏笔：两层的底色一旦有差异，墨水淡入过渡就会露出接缝。
+//  - 画布是**透明**的（2026-11-17，计划 P1）：纸由下面的 `PaperBackground` 画（纸纹、书脊阴影），
+//    画布只承接笔迹。原先画布自带纸色、自己就是那张纸；有了纸纹之后再让它不透明会把纸纹整个盖住。
 //  - 关掉滚动与缩放：一页日记就是一页，不是无限画布。这样画布坐标与页面坐标
 //    一致，笔画交给引擎时不需要额外换算（D1 的单位契约靠这个前提成立）。
 //    将来若要支持翻页或缩放，必须同时处理坐标换算，不能默默打开。
@@ -63,8 +63,9 @@ struct HandwritingCanvas: UIViewRepresentable {
         let canvas = PKCanvasView()
         canvas.delegate = context.coordinator
 
-        canvas.backgroundColor = UIColor(PageAppearance.paper)
-        canvas.isOpaque = true
+        // 透明：纸在下面一层（`PaperBackground`），见文件头。
+        canvas.backgroundColor = .clear
+        canvas.isOpaque = false
 
         // 一页就是一页：不滚动不缩放，画布坐标即页面坐标。
         canvas.isScrollEnabled = false

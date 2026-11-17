@@ -28,11 +28,11 @@
 //  「看起来写完」。示例已挪进本文件底部的 Preview：只在 Xcode 里可见，
 //  永远不会进入运行的 App。
 //
-//  两层的关系（计划 E3）：
-//  下层是 `HandwritingCanvas`（PencilKit），承接用户手写；上层是魂的回应。
-//  两层共用同一份纸色与同一个页面坐标系。先做两层叠加而不是把魂的笔画塞进
-//  同一份 PKDrawing，是因为逐笔生长需要每帧精细控制，塞进 PencilKit 的数据里
-//  不好控；等回应写完再「落定」进 PKDrawing（用户就能用橡皮擦掉，决策 18）。
+//  三层的关系（计划 E3、P1）：
+//  最下面是纸（`PaperBackground`：纸纹 + 书脊阴影）；中间是透明的 `HandwritingCanvas`（PencilKit），
+//  承接用户手写；最上面是魂的回应。三层共用同一个页面坐标系。魂的笔画不塞进 PKDrawing，
+//  是因为逐笔生长需要每帧精细控制。原先打算写完再落定进 PKDrawing 好让橡皮擦掉（决策 18），
+//  但网页原型定了「字不会被删掉，只会沉进纸里」（决策 80），那一步不再做。
 //  回应层不接受点击，否则它会挡住下面的纸让人写不了字。
 //
 
@@ -43,6 +43,10 @@ struct DiaryPageView: View {
     // 魂写字用带节奏、带笔法、按意思换行的那一套装配（`ReplyComposer.forSoul()`）。
     // 在这里换而不是改 `DiaryPageModel` 的默认值：模型的测试守的是状态机，不该跟着手感一起变期望值。
     @State private var model = DiaryPageModel(composer: .forSoul())
+    /// 合页姿态（`BookHinge` 报上来）。nil = 还没报，启动的头一瞬。
+    @State private var posture: BookPosture?
+    /// 系统报告的折缝。只有半开时才有（2026-11-17 实测），摊平时靠 `SpreadGeometry.resolve` 推断。
+    @State private var reportedFold: PageRegion?
 
     var body: some View {
         // 外层不忽略安全区，只用来读真实的安全区；内层铺满全屏，是纸和页面坐标系。
@@ -51,8 +55,16 @@ struct DiaryPageView: View {
         GeometryReader { screen in
             GeometryReader { geometry in
                 let insets = pageInsets(geometry.size, safe: screen.safeAreaInsets)
+                let spread = SpreadGeometry.resolve(
+                    bounds: PageRegion(left: 0, top: 0, width: geometry.size.width, height: geometry.size.height),
+                    reported: reportedFold,
+                    posture: posture,
+                    assumedFoldWidth: PaperLook.foldWidthPoints
+                )
                 ZStack(alignment: .topLeading) {
-                    // 画布自带纸色，因此它就是这一页的纸。
+                    // 纸（纸纹 + 书脊阴影）在最底下；画布是透明的，只承接笔迹（计划 P1）。
+                    PaperBackground(spread: spread)
+
                     HandwritingCanvas(
                         drawing: model.book.current.drawing,
                         onStrokeBegan: { model.strokeBegan() },
@@ -110,54 +122,28 @@ struct DiaryPageView: View {
                 .onChange(of: screen.safeAreaInsets) { _, newSafe in
                     reportPageArea(geometry.size, insets: pageInsets(geometry.size, safe: newSafe))
                 }
-                #if DEBUG
-                // 只观察、不接行为（M5，2026-11-16）：在 Duo 模拟器上开合合页时，
-                // 用日志核对 `BookHinge` 读到的姿态与折缝是否跟着变。
-                // 姿态怎么改变成页、折缝怎么进占用图，是对开设计的下一步，要用户先定方向；
-                // 在那之前只打日志，免得把没拍板的交互悄悄接进首屏。
-                .background(SpreadReader { spread in
-                    Color.clear.onChange(of: spread, initial: true) { _, now in
-                        print("── 对开（M5）── 屏幕 \(now.bounds) 折缝 \(now.fold.map { "\($0)" } ?? "无")")
-                    }
+                // 合页与折缝（计划 P1）：折缝同时交给书脊阴影（上面的 `PaperBackground`）
+                // 和占用图（回应不跨书脊）。姿态怎么改变成页是 P7 的事，这里只用它分辨内外屏。
+                .background(SpreadReader { reported in
+                    Color.clear.onChange(of: reported.fold, initial: true) { _, fold in reportedFold = fold }
                 })
-                .onBookPostureChange { posture in
-                    print("── 合页（M5）── 姿态：\(posture)")
+                .onBookPostureChange { new in
+                    posture = new
+                    #if DEBUG
+                    print("── 合页 ── 姿态：\(new)")
+                    #endif
                 }
-                #endif
+                .onChange(of: spread.fold, initial: true) { _, fold in
+                    model.foldChanged(fold)
+                    #if DEBUG
+                    print("── 对开 ── 屏幕 \(Int(geometry.size.width))×\(Int(geometry.size.height)) 折缝 \(fold.map { "\($0)" } ?? "无")")
+                    #endif
+                }
             }
             .ignoresSafeArea()
         }
         .accessibilityLabel("日记页")
         .task { await model.loadRecognitionAvailability() }
-    }
-
-    /// 这一页的纸：用户的画布 + 魂写在这一页上的字。
-    ///
-    /// 抽成一块是为了让它整体参与翻页动画——两层必须一起走。
-    @ViewBuilder
-    private var paper: some View {
-        ZStack(alignment: .topLeading) {
-            // 画布自带纸色，因此它就是这一页的纸。
-            HandwritingCanvas(
-                drawing: model.book.current.drawing,
-                onStrokeBegan: { model.strokeBegan() },
-                onStrokeFinished: { model.strokeFinished($0) },
-                onPencilHoverChanged: { model.hoverChanged($0) }
-            )
-
-            // 魂已经写下、定格留在这一页上的那些。纸上的东西不该自己消失——
-            // 2026-09-01 之前只画「正在写的那一段」，于是第二段一开始写、
-            // 第一段就从纸上消失了。
-            ForEach(Array(model.settledReplies.enumerated()), id: \.offset) { _, settled in
-                HandwritingReplayView(sequence: settled.sequence, playback: settled.playback)
-                    .allowsHitTesting(false)
-            }
-
-            if let reply = model.reply {
-                HandwritingReplayView(sequence: reply.sequence, playback: reply.playback)
-                    .allowsHitTesting(false)
-            }
-        }
     }
 
     /// 翻页动画的时长与曲线（计划 E3f，决策 33）。
