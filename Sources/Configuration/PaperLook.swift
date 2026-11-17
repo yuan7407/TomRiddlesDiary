@@ -137,6 +137,8 @@ nonisolated enum PaperLook {
         static let folio = Style(size: 10.5, tracking: 1.5, alpha: 0.42, semibold: false)
         /// 纸上的系统提示（读不出哪种文字、他这次没写出来……）。
         static let notice = Style(size: 12.5, tracking: 1.5, alpha: 0.62, semibold: false)
+        /// 开场那道线下面的「在这一页上手写。停笔，他会读。」（原型 size 12、字距 2.5、0.5）。
+        static let openingHint = Style(size: 12, tracking: 2.5, alpha: 0.5, semibold: false)
 
         /// 页眉、页码离纸边多远（原型单位）。离书口 46；日期基线离上边 44；页码基线离下边 30。
         static let outerMargin: Double = 46

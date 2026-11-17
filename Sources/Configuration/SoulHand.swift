@@ -68,4 +68,29 @@ nonisolated enum SoulHand {
     /// 和你那句齐平：他的第一行顶边 = 你那句的顶边 − 0.12 字高，再随机 ±7（原型单位）。
     static let alignRaise: Double = 0.12
     static let alignJitter: Double = 14
+
+    // MARK: 开场（计划 P6，原型 startIntro() 与 composeHis 的 withLine）
+
+    /// 他先开口。说什么在 Persona.json 的 `opening`（那是他的话）；这里只放「在哪、什么时候、线怎么划」。
+    enum Opening {
+        /// 翻开后多久落第一笔（秒）。原型 minAt = 开场 + 1.1：先让纸静一下，再开口。
+        static let delay: TimeInterval = 1.1
+        /// 他那两行和「你那一页」的哪个高度齐平：纸高的 0.25（原型 present.top = H × 0.25）。
+        static let anchorTopOfHeight: Double = 0.25
+        /// 替你划的那道线：在你那一页，从折缝外 60 原型单位起，长 250，纸高一半处，往右上抬 5。
+        static let lineInsetFromFold: Double = 60
+        static let lineLength: Double = 250
+        static let lineHeightOfHeight: Double = 0.5
+        static let lineRise: Double = 5
+        /// 线上六个点的上下抖动（原型单位），首尾为 0。原型逐个写死的值，照抄。
+        static let lineWobble: [Double] = [0, 1.5, -1, 1, -1.5, 0]
+        /// 线下那句印刷体提示：线中点下方 44，翻开约 6 秒后淡出来（原型 smooth(5.5, 6.5)）。
+        static let hintBelowLine: Double = 44
+        static let hintDelay: TimeInterval = 5.5
+        static let hintFade: TimeInterval = 1
+        /// 系统说的话，不进人设。
+        static let hintText = "在这一页上手写。停笔，他会读。"
+        /// 来过几次（只有一个计数，不含任何内容）存在这个键下。原型用 localStorage 的同名键。
+        static let visitsKey = "duikai.visits"
+    }
 }

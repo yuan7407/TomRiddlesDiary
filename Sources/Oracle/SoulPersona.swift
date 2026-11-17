@@ -41,6 +41,27 @@ nonisolated struct SoulPersona: Equatable, Sendable, Decodable {
     }
     let style: Style
 
+    /// 翻开本子时他先说的话（计划 P6）。可选：没有这一段的人设就不开场，不编一句顶上。
+    let opening: Opening?
+
+    nonisolated struct Opening: Equatable, Sendable, Decodable {
+        /// 按钟点分组：`hour < before` 的第一组生效。
+        nonisolated struct ByHour: Equatable, Sendable, Decodable {
+            let before: Int
+            let first: String
+            let second: String
+        }
+        let byHour: [ByHour]
+        let askName: String
+        let returning: String
+
+        /// 这一次翻开他写什么（原型 startIntro）：第一次来是「问候 + 问称呼」，来过的是「回来了 + 第二句」。
+        /// 两句之间换行。钟点落不进任何一组（数据写漏了）时返回 nil，由调用方不开场，而不是猜一句。
+        func lines(hour: Int, hasVisitedBefore: Bool) -> String? {
+            guard let group = byHour.first(where: { hour < $0.before }) else { return nil }
+            return hasVisitedBefore ? returning + "\n" + group.second : group.first + "\n" + askName
+        }
+    }
 }
 
 /// 加载 persona 失败的原因。

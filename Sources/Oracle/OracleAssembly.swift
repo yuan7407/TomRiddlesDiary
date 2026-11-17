@@ -70,6 +70,20 @@ nonisolated enum OracleAssembly {
         )
     }
 
+    /// 打包的人设。开场白（P6）也要用，所以单独给出；读不出来返回 nil 并打日志。
+    static func bundledPersona(in bundle: Bundle = .main) -> SoulPersona? {
+        guard let data = personaData(in: bundle) else {
+            report("读不到 Sources/Resources/Persona.json")
+            return nil
+        }
+        do {
+            return try SoulPersonaLoader.decode(data)
+        } catch {
+            report("人设文件读不出来：\(error)")
+            return nil
+        }
+    }
+
     /// 人设文件的内容。`Sources/Resources/Persona.json`，一个普通的打包资源。
     private static func personaData(in bundle: Bundle) -> Data? {
         guard let url = bundle.url(forResource: "Persona", withExtension: "json") else {

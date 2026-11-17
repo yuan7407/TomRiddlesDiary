@@ -299,6 +299,8 @@ final class DiaryPageModel {
         countdown = nil
         lastLift = nil
         setPhase(.writing)
+        // 开场那句「在这一页上手写」只在你落笔之前有用（原型 wroteOnce）。
+        if openingHintPoint != nil { openingHintPoint = nil }
 
         // E3d：新落笔立刻接管，重播停在当前进度，半截字留在页上（决策 14）。
         if let current = reply {
@@ -538,6 +540,13 @@ final class DiaryPageModel {
 
         setPhase(.understanding)
         recognitionTask?.cancel()
+        // 开场白不算一页（原型：greeting 不进旧页）。第一次成页时让开，这张对开留给你们的第一轮。
+        // P4 会给它一个「沉下去」的过程；在那之前是直接撤掉。
+        if greetingOnPage {
+            reply = nil
+            book.current.settledReplies.removeAll()
+            greetingOnPage = false
+        }
         recognition = await recognizer.recognize(round)
 
         // 推进分界点：此刻页面上的所有笔画都算「已经交出去过」。
@@ -609,6 +618,64 @@ final class DiaryPageModel {
         }
 
         await writeOnPage(spoken.text)
+    }
+
+    // MARK: 开场（计划 P6，原型 startIntro）
+
+    /// 这次启动是否已经开过场。一次启动只开一次。
+    private(set) var openingShown = false
+    /// 纸上那段是开场白。第一次成页时它让开（见 `commit`）。
+    private(set) var greetingOnPage = false
+    /// 开场那道线下面那句提示的位置（中点、页面坐标）。你落笔后清掉；nil 表示不显示。
+    private(set) var openingHintPoint: Point2D?
+
+    /// 翻开本子：他先开口，再替你在右页划一道线。不问模型，所以不用等网络。
+    ///
+    /// 「你」默认在右页（原型 present.yourSide = 'R'），所以他写在左页，和右页纸高 0.25 处齐平。
+    /// 只在对开（有两页的栏位）、纸上还什么都没有的时候开场：开到一半你已经在写，就不再插一段进来。
+    /// - Parameters:
+    ///   - lines: 他说的两行（`SoulPersona.Opening.lines`），中间换行。
+    ///   - spreadHeight: 整张对开的高（页面点），用来定「纸高 0.25」和「纸高一半」。
+    func openBook(lines: String, spreadHeight: Double) async {
+        guard !openingShown, let facingColumns, let writableArea,
+              reply == nil, settledReplies.isEmpty, phase == .nothingNew else { return }
+        openingShown = true
+
+        let unit = PaperLook.pointsPerPrototypeUnit
+        let o = SoulHand.Opening.self
+        let anchor = PageRegion(left: facingColumns.trailing.left, top: spreadHeight * o.anchorTopOfHeight, width: 1, height: 1)
+        let foldRight = fold?.right ?? (facingColumns.spineX + PaperLook.foldWidthPoints / 2)
+        let lineStart = foldRight + o.lineInsetFromFold * unit
+        let lineY = spreadHeight * o.lineHeightOfHeight
+        let steps = Double(max(1, o.lineWobble.count - 1))
+        let line = Polyline(points: o.lineWobble.enumerated().map { index, wobble in
+            let u = Double(index) / steps
+            return Point2D(x: lineStart + u * o.lineLength * unit, y: lineY - u * o.lineRise * unit + wobble * unit)
+        })
+
+        let composed: ComposedReply
+        do {
+            composed = try composer.composeAcrossSpine(
+                lines, facing: anchor, columns: facingColumns,
+                on: inkMap(writableArea: writableArea, glyphSize: HandwritingFeel.referenceGlyphHeightInPoints, includingFold: false),
+                seed: HandwritingFeel.defaultSeed, then: [line]
+            )
+        } catch {
+            #if DEBUG
+            print("── 开场 ── 排不出来：\(error)")
+            #endif
+            return
+        }
+
+        // 先让纸静一下再开口（原型 1.1 秒）。等的时候你已经落笔了，就不开场。
+        try? await Task.sleep(for: .seconds(o.delay))
+        guard reply == nil, settledReplies.isEmpty, phase == .nothingNew else { return }
+        beginReply(composed.sequence)
+        greetingOnPage = true
+        openingHintPoint = Point2D(x: lineStart + o.lineLength * unit / 2, y: lineY + o.hintBelowLine * unit)
+        #if DEBUG
+        print("── 开场 ── 他先开口（\(composed.sequence.strokes.count) 笔，\(String(format: "%.1f", composed.sequence.totalDuration)) 秒）")
+        #endif
     }
 
     /// 把魂说的话装配成笔画并开始逐笔写。

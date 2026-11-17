@@ -161,7 +161,8 @@ nonisolated struct ReplyComposer: Sendable {
         facing writing: PageRegion,
         columns: FacingColumns,
         on inkMap: PageInkMap,
-        seed: UInt64
+        seed: UInt64,
+        then extraStrokes: [Polyline] = []
     ) throws -> ComposedReply {
         let column = columns.column(facing: writing)
         let unit = PaperLook.pointsPerPrototypeUnit
@@ -201,7 +202,7 @@ nonisolated struct ReplyComposer: Sendable {
         guard inkMap.isFree(region) else { throw ReplyPlacementFailure.noRoomOnThisPage }
 
         let placement = ReplyPlacement(origin: Point2D(x: x, y: y), lineWidth: column.width, region: region, slot: .acrossSpine)
-        return finish(text, laidOut: laidOut, placement: placement, glyphSize: size, seed: seed)
+        return finish(text, laidOut: laidOut, placement: placement, glyphSize: size, seed: seed, extraStrokes: extraStrokes)
     }
 
     /// 两页各自能写字的那一栏。边距照原型（`SoulHand`），右页再让开系统安全区（Duo 内屏右侧是竖排状态栏）。
@@ -259,14 +260,25 @@ nonisolated struct ReplyComposer: Sendable {
         )
     }
 
+    /// 额外笔画在笔法与节奏眼里算作哪个字：破折号——一笔平直的线，不是楷书，前后有停顿。
+    static let extraStrokesGlyph: Character = "—"
+
     /// 两条装配路径共用的后半段：手绘化 → 笔法 → 节奏。
     private func finish(
-        _ text: String, laidOut: LaidOutGlyphStrokes, placement: ReplyPlacement, glyphSize: Double, seed: UInt64
+        _ text: String, laidOut: LaidOutGlyphStrokes, placement: ReplyPlacement, glyphSize: Double, seed: UInt64,
+        extraStrokes: [Polyline] = []
     ) -> ComposedReply {
+        // 字写完以后再加的几笔（开场时替你划的那道线，P6）不属于任何一个字。
+        // 笔法和节奏都按「一个字、它有几笔」来对账（`ReplyCadence` 会严格核对），所以把它们当成
+        // 一个破折号交进去：笔法不给它楷书的粗细，节奏把它排在最后一个字之后（原型 la: true、前停 0.55 秒）。
+        let polylines = laidOut.polylines + extraStrokes
+        let glyphs = Self.laidOutGlyphs(of: text, uncovered: laidOut.uncoveredCharacters)
+            + (extraStrokes.isEmpty ? [] : [Self.extraStrokesGlyph])
+        let strokeCounts = laidOut.strokeCountsPerGlyph + (extraStrokes.isEmpty ? [] : [extraStrokes.count])
         // ③ 手绘化。参考尺度传当前字号，因为所有手感量都是「字高的比例」（决策 25）：
         //    字写得小，手抖幅度也该跟着小。
         let sequence = pipeline.process(
-            laidOut.polylines,
+            polylines,
             configuration: HandwritingFeel.humanizerConfiguration(referenceScale: glyphSize),
             seed: seed,
             // 魂写字比真人快（用户拍板 1.5 倍）。整体缩放而不是调书写速度，
@@ -276,7 +288,6 @@ nonisolated struct ReplyComposer: Sendable {
 
         // 笔法：只改粗细，不动形状和时间，所以放在手绘化之后、节奏之前都一样；
         // 放在这里是因为它和手绘化同属「怎么写」。拉丁字母、数字和标点不是楷书，原样不动。
-        let glyphs = Self.laidOutGlyphs(of: text, uncovered: laidOut.uncoveredCharacters)
         let shaped = brush.map { brush in
             BrushShaping.shaped(
                 sequence,
@@ -287,7 +298,7 @@ nonisolated struct ReplyComposer: Sendable {
                 ),
                 plainStrokes: Self.plainStrokeIndices(
                     glyphs: glyphs,
-                    strokeCountsPerGlyph: laidOut.strokeCountsPerGlyph
+                    strokeCountsPerGlyph: strokeCounts
                 )
             )
         } ?? sequence
@@ -298,7 +309,7 @@ nonisolated struct ReplyComposer: Sendable {
             cadence.apply(
                 to: shaped,
                 glyphs: glyphs,
-                strokeCountsPerGlyph: laidOut.strokeCountsPerGlyph,
+                strokeCountsPerGlyph: strokeCounts,
                 seed: seed
             )
         } ?? shaped

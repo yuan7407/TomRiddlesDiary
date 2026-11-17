@@ -47,6 +47,11 @@ struct DiaryPageView: View {
     @State private var posture: BookPosture?
     /// 系统报告的折缝。只有半开时才有（2026-11-17 实测），摊平时靠 `SpreadGeometry.resolve` 推断。
     @State private var reportedFold: PageRegion?
+    /// 开场那句印刷体提示淡出来了没有（计划 P6）。
+    @State private var openingHintShown = false
+
+    /// 开场白（他的话，在 Persona.json）。读一次就够：人设在一次运行里不会变。
+    private static let opening = OracleAssembly.bundledPersona()?.opening
 
     var body: some View {
         // 外层不忽略安全区，只用来读真实的安全区；内层铺满全屏，是纸和页面坐标系。
@@ -87,6 +92,19 @@ struct DiaryPageView: View {
                     if let reply = model.reply {
                         HandwritingReplayView(sequence: reply.sequence, playback: reply.playback)
                             .allowsHitTesting(false)
+                    }
+
+                    // 开场那道线下面的提示：印刷体，是系统说的话（计划 P6）。你落笔后模型会清掉它。
+                    if let point = model.openingHintPoint {
+                        PrintedNotice(text: SoulHand.Opening.hintText, style: PaperLook.Printed.openingHint)
+                            .fixedSize()
+                            .position(x: point.x, y: point.y)
+                            .opacity(openingHintShown ? 1 : 0)
+                            .allowsHitTesting(false)
+                            .task {
+                                try? await Task.sleep(for: .seconds(SoulHand.Opening.hintDelay - SoulHand.Opening.delay))
+                                withAnimation(.easeIn(duration: SoulHand.Opening.hintFade)) { openingHintShown = true }
+                            }
                     }
 
                     if let notice = recognitionNotice, model.phase == .nothingNew {
@@ -141,6 +159,16 @@ struct DiaryPageView: View {
                                                           safeBottom: screen.safeAreaInsets.bottom,
                                                           safeTrailing: screen.safeAreaInsets.trailing), initial: true) { _, columns in
                     model.facingColumnsChanged(columns)
+                }
+                // 翻开本子他先开口（计划 P6）：两页的栏位就绪（摊开的内屏）才开场，一次启动一次。
+                .task(id: model.facingColumns != nil) {
+                    guard model.facingColumns != nil, !model.openingShown, let opening = Self.opening else { return }
+                    let defaults = UserDefaults.standard
+                    let visits = defaults.integer(forKey: SoulHand.Opening.visitsKey)
+                    defaults.set(visits + 1, forKey: SoulHand.Opening.visitsKey)
+                    let hour = Calendar.current.component(.hour, from: Date())
+                    guard let lines = opening.lines(hour: hour, hasVisitedBefore: visits > 0) else { return }
+                    await model.openBook(lines: lines, spreadHeight: geometry.size.height)
                 }
                 .onChange(of: spread.fold, initial: true) { _, fold in
                     model.foldChanged(fold)
