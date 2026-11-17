@@ -158,11 +158,10 @@ nonisolated final class SpreadTests: XCTestCase {
         XCTAssertNil(SpreadGeometry.resolve(bounds: inner, reported: nil, posture: nil, assumedFoldWidth: 40).fold)
     }
 
-    /// 内屏竖着拿：缝是横的，把屏幕分成上下两页。
-    func testPortraitInnerScreenGetsAHorizontalFold() throws {
-        let portrait = PageRegion(left: 0, top: 0, width: 669, height: 951)
-        let fold = try XCTUnwrap(SpreadGeometry.resolve(bounds: portrait, reported: nil, posture: .flat, assumedFoldWidth: 40).fold)
-        XCTAssertEqual(fold.top, 455.5, accuracy: 1e-9)
-        XCTAssertEqual(fold.width, 669, accuracy: 1e-9)
+    /// 半开时外屏可能还亮着（2026-11-17 实测）：竖的屏幕不推断缝，否则外屏中间会凭空多一道横缝。
+    func testAjarWhileTheOuterScreenIsStillOnInventsNoFold() {
+        XCTAssertNil(SpreadGeometry.resolve(bounds: outer, reported: nil, posture: .ajar, assumedFoldWidth: 40).fold)
+        let portraitInner = PageRegion(left: 0, top: 0, width: 669, height: 951)
+        XCTAssertNil(SpreadGeometry.resolve(bounds: portraitInner, reported: nil, posture: .flat, assumedFoldWidth: 40).fold)
     }
 }

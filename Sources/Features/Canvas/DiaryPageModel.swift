@@ -249,7 +249,9 @@ final class DiaryPageModel {
     ///   - writableArea: **已扣掉页边距**的可书写区域。页边距属于界面尺寸，
     ///     模型不认识它，所以由调用方算好传进来。
     ///   - glyphSize: 字高。占用图的格子大小与预留间距都由它推出。
-    func inkMap(writableArea: PageRegion, glyphSize: Double) -> PageInkMap {
+    ///   - includingFold: 要不要把折缝标成墙。隔着书脊写的路径传 false：那一栏本来就让开了折缝，
+    ///     墙只对会跨缝的旧排法有意义；再算一遍只会让占用检查的留白在靠书脊那一侧多挡一截。
+    func inkMap(writableArea: PageRegion, glyphSize: Double, includingFold: Bool = true) -> PageInkMap {
         var map = PageInkMap(
             page: writableArea,
             resolution: PageInkMap.Resolution(
@@ -271,7 +273,7 @@ final class DiaryPageModel {
         // 折缝当成一道已经有墨的墙（计划 P1，用对开包的 `foldBarrier`）：
         // 落点决策因此不会把一段话横跨在书脊上，落点规则本身一行不用改。
         // 2026-11-17 实测之前，回应会从左页一直写到右页。
-        if let fold {
+        if includingFold, let fold {
             map.mark(SpreadGeometry(bounds: writableArea, fold: fold).foldBarrier(spacing: map.resolution.cellSize))
         }
         return map
@@ -625,24 +627,10 @@ final class DiaryPageModel {
 
         do {
             // 每轮换种子，落点与手抖才会变。同一轮内重算得到同一结果。
-            let seed = HandwritingFeel.defaultSeed &+ replyRound
-            let map = inkMap(writableArea: writableArea, glyphSize: glyphSize)
-            let composed: ComposedReply
-            // 对开时先隔着书脊写在你对面（计划 P3，原型）。那一栏已经有字（P4 之前，
-            // 上一轮的回应还留在页上）就退回原来的找空位，而不是压在别的字上。
-            if let facingColumns, let writing = lastRoundRegion,
-               let across = try? composer.composeAcrossSpine(text, facing: writing, columns: facingColumns, on: map, seed: seed) {
-                composed = across
-            } else {
-                composed = try composer.compose(
-                    text,
-                    glyphSize: glyphSize,
-                    lineSpacingRatio: PageAppearance.lineSpacingRatio,
-                    after: lastRoundRegion,
-                    on: map,
-                    seed: seed
-                )
-            }
+            let composed = try composeReply(
+                text, facing: lastRoundRegion, writableArea: writableArea, glyphSize: glyphSize,
+                seed: HandwritingFeel.defaultSeed &+ replyRound
+            )
             replyRound &+= 1
             uncoveredCharacters = composed.uncoveredCharacters
             beginReply(composed.sequence)
@@ -687,6 +675,8 @@ final class DiaryPageModel {
         // 当前这段（如果有）先定格在旧页上，别跟着翻过去。
         settleCurrentReply()
 
+        // 你这一轮的字在哪一页：翻页之后它留在旧页上，但他仍然按它选对面那一栏（计划 P3）。
+        let writing = lastRoundRegion
         book.turnToNextPage()
         pageTurnCount += 1
         // 新的一页上没有「这一轮写的字」可以挨着，也没有已收下的分界点可言。
@@ -705,14 +695,11 @@ final class DiaryPageModel {
         let glyphSize = HandwritingFeel.referenceGlyphHeightInPoints
 
         do {
-            let composed = try composer.compose(
-                text,
-                glyphSize: glyphSize,
-                lineSpacingRatio: PageAppearance.lineSpacingRatio,
-                // 新页是空的，没有可挨着的字，所以从可书写区域左上角写起。
-                after: nil,
-                on: inkMap(writableArea: writableArea, glyphSize: glyphSize),
-                seed: HandwritingFeel.defaultSeed &+ replyRound
+            let composed = try composeReply(
+                text, facing: writing, writableArea: writableArea, glyphSize: glyphSize,
+                seed: HandwritingFeel.defaultSeed &+ replyRound,
+                // 新页是空的，旧排法没有可挨着的字，从可书写区域左上角写起。
+                fallbackAfter: .some(nil)
             )
             replyRound &+= 1
             uncoveredCharacters = composed.uncoveredCharacters
@@ -722,6 +709,35 @@ final class DiaryPageModel {
             // 一张空白纸都放不下，说明这段话长得离谱。如实报，不再翻页。
             fallSilent(.couldNotReach(detail: "翻到新一页也放不下这段回应：\(error)"))
         }
+    }
+
+    /// 装配一段回应：对开时先隔着书脊写在你对面（计划 P3，原型）；没有对开（外屏）、
+    /// 或者那一栏已经有字（P4 之前上一轮的回应还留在页上），退回原来的找空位，不压在别的字上。
+    /// - Parameter fallbackAfter: 退回旧排法时挨着哪块字。默认就是 `writing`。
+    private func composeReply(
+        _ text: String, facing writing: PageRegion?, writableArea: PageRegion, glyphSize: Double,
+        seed: UInt64, fallbackAfter: PageRegion?? = .none
+    ) throws -> ComposedReply {
+        if let facingColumns, let writing {
+            do {
+                return try composer.composeAcrossSpine(
+                    text, facing: writing, columns: facingColumns,
+                    on: inkMap(writableArea: writableArea, glyphSize: glyphSize, includingFold: false), seed: seed
+                )
+            } catch {
+                #if DEBUG
+                print("── 魂 ── 隔着书脊放不下（\(error)），退回找空位")
+                #endif
+            }
+        }
+        return try composer.compose(
+            text,
+            glyphSize: glyphSize,
+            lineSpacingRatio: PageAppearance.lineSpacingRatio,
+            after: fallbackAfter ?? writing,
+            on: inkMap(writableArea: writableArea, glyphSize: glyphSize),
+            seed: seed
+        )
     }
 
     /// 魂说不出话，如实记下并显示。

@@ -49,9 +49,12 @@ nonisolated struct SpreadGeometry: Equatable, Sendable {
     /// **只在半开时**给出折缝，摊平时给空。而摊平正是写字的姿态，这时候没有折缝，
     /// 回应就会横跨书脊、书脊阴影也画不出来。
     ///
-    /// 推断规则：合上时用的是外屏，一整块、没有折缝；没合上时用的是内屏，折缝垂直于长边、
-    /// 落在长边正中（横着拿是竖缝分左右两页，竖着拿是横缝分上下两页）。
-    /// 用姿态而不是屏幕宽高比来分辨内外屏：外屏横过来也是宽大于高，按比例判断会给外屏凭空造一道缝。
+    /// 推断规则：**没合上、并且屏幕是横的**，才在正中推断一道竖缝（Duo 摊开的内屏是横的 951 × 669）。
+    /// 两个条件缺一不可（都是 2026-11-17 实测撞出来的）：
+    /// · 只看屏幕比例不够：外屏横过来也是宽大于高，会凭空造一道缝——所以合上时不推断；
+    /// · 只看姿态也不够：**半开时外屏可能还亮着**（466 × 678，竖的），第一版只看姿态，
+    ///   在外屏中间推断出了一道横缝。
+    /// 内屏竖着拿时推断不出缝，宁可少画一道书脊阴影，也不画错的。
     ///
     /// - Parameters:
     ///   - reported: 系统报告的折缝，没有为 nil。
@@ -69,22 +72,15 @@ nonisolated struct SpreadGeometry: Equatable, Sendable {
         guard let posture, posture != .closed, assumedFoldWidth > 0 else {
             return SpreadGeometry(bounds: bounds, fold: nil)
         }
-        let fold: PageRegion
-        if bounds.width >= bounds.height {
-            fold = PageRegion(
-                left: bounds.left + (bounds.width - assumedFoldWidth) / 2,
-                top: bounds.top,
-                width: assumedFoldWidth,
-                height: bounds.height
-            )
-        } else {
-            fold = PageRegion(
-                left: bounds.left,
-                top: bounds.top + (bounds.height - assumedFoldWidth) / 2,
-                width: bounds.width,
-                height: assumedFoldWidth
-            )
+        guard bounds.width > bounds.height else {
+            return SpreadGeometry(bounds: bounds, fold: nil)
         }
+        let fold = PageRegion(
+            left: bounds.left + (bounds.width - assumedFoldWidth) / 2,
+            top: bounds.top,
+            width: assumedFoldWidth,
+            height: bounds.height
+        )
         return SpreadGeometry(bounds: bounds, fold: fold)
     }
 
