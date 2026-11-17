@@ -112,6 +112,26 @@ extension DiaryPagePhase {
 /// 打断规则仍然写在这里而不是留到以后，因为这里就是它的定义位置——
 /// 「用户落笔要打断什么」这件事属于页面状态，不属于渲染层。
 /// 可运行的证明在 `DiaryPageView` 的 Xcode 预览里。
+/// 被纸喝下去的那一轮（计划 P4，原型 drawDrink）：你成页那一刻写下的笔画，
+/// 从 PencilKit 里拿出来，由 `DrinkingInkView` 一笔接一笔地画成「变细、变褐、朝书脊偏、淡下去」，
+/// 喝完留一层很淡的压痕。字不会被删掉，只会沉进纸里（原型凡例第三条）。
+nonisolated struct DrinkingInk: Equatable, Sendable {
+    /// 这一轮的笔画（页面坐标），按书写顺序。
+    let polylines: [Polyline]
+    /// 朝书脊的方向：+1 往右（你写在左页）、−1 往左（你写在右页）、0 没有书脊（外屏）。
+    let towardSpine: Double
+    /// 从什么时候开始喝。
+    let since: ContinuousClock.Instant
+}
+
+/// 沉下去的那一段回应（计划 P4，原型 drawSinking）：下一轮成页时，他上一段话变淡、变糊、
+/// 朝书脊偏，然后离开这张对开、进旧页。
+nonisolated struct SinkingReply: Equatable, Sendable, Identifiable {
+    let id: Int
+    let reply: ReplyOnPage
+    let towardSpine: Double
+}
+
 nonisolated struct ReplyOnPage: Equatable, Sendable {
     let sequence: StrokeSequence
     var playback: ReplayPlayback
@@ -540,13 +560,8 @@ final class DiaryPageModel {
 
         setPhase(.understanding)
         recognitionTask?.cancel()
-        // 开场白不算一页（原型：greeting 不进旧页）。第一次成页时让开，这张对开留给你们的第一轮。
-        // P4 会给它一个「沉下去」的过程；在那之前是直接撤掉。
-        if greetingOnPage {
-            reply = nil
-            book.current.settledReplies.removeAll()
-            greetingOnPage = false
-        }
+        // 他上一段沉下去、你这一轮被纸喝下去（计划 P4）。开场白也一样沉下去（原型 greetingGhost）。
+        beginNewRound(round: round, previousBoundary: committedBoundary)
         recognition = await recognizer.recognize(round)
 
         // 推进分界点：此刻页面上的所有笔画都算「已经交出去过」。
@@ -618,6 +633,67 @@ final class DiaryPageModel {
         }
 
         await writeOnPage(spoken.text)
+    }
+
+    // MARK: 一轮的一生（计划 P4）
+
+    /// 正在被喝下去、或已经喝完只剩压痕的那一轮。下一轮成页时被新的一轮换掉（旧压痕进旧页）。
+    private(set) var drinking: DrinkingInk?
+    /// 正在沉下去的回应。沉完（`BookFeel.Drink.duration`）就从这张对开上移走。
+    private(set) var sinking: [SinkingReply] = []
+    private var sinkingSerial = 0
+    /// 成过几轮页。页码按它走：一个对开只放一轮（原型 drawFurniture(archive.length + 1)）。
+    private(set) var roundsCommitted = 0
+    /// 画布上的笔迹是第几版由模型给的（翻页、喝字都会从外面换掉整份笔迹）。见 `HandwritingCanvas.drawingRevision`。
+    private(set) var drawingRevision = 0
+
+    /// 这张对开是第几张：左页页码 2n、右页 2n + 1。
+    var leafNumber: Int { max(1, roundsCommitted) + book.currentIndex }
+
+    /// 成页那一刻：他上一段话沉下去，你这一轮被纸喝下去（原型 commit）。
+    ///
+    /// 为什么要把你的笔画从 `PKDrawing` 里拿走：PencilKit 只会原样显示笔迹，画不出「一笔一笔
+    /// 变细变褐、朝书脊偏」；而且笔迹留在画布上，他对面那一栏就一直被你的字占着
+    /// （2026-11-17 实测「放不下」的根源之一）。拿走以后由 `DrinkingInkView` 接着画，压痕留在纸上。
+    private func beginNewRound(round: PKDrawing, previousBoundary: Date?) {
+        let spineX = facingColumns?.spineX
+        func direction(of polylines: [Polyline]) -> Double {
+            guard let spineX, let box = PageRegion.covering(polylines) else { return 0 }
+            return box.left + box.width / 2 < spineX ? 1 : -1
+        }
+
+        // ① 他上一段（含开场白、被打断停在半截的）沉下去。
+        let leaving = settledReplies + (reply.map { [$0] } ?? [])
+        if !leaving.isEmpty {
+            var ids: [Int] = []
+            for item in leaving {
+                let frozen = ReplyOnPage(
+                    sequence: item.sequence,
+                    playback: ReplayInterruption.freeze(item.playback, totalDuration: item.sequence.totalDuration)
+                )
+                sinkingSerial += 1
+                ids.append(sinkingSerial)
+                sinking.append(SinkingReply(id: sinkingSerial, reply: frozen, towardSpine: direction(of: item.sequence.polylines)))
+            }
+            reply = nil
+            book.current.settledReplies.removeAll()
+            Task { [weak self] in
+                try? await Task.sleep(for: .seconds(BookFeel.Drink.duration))
+                self?.sinking.removeAll { ids.contains($0.id) }
+            }
+        }
+        greetingOnPage = false
+
+        // ② 你这一轮被纸喝下去：从画布里拿出来，交给喝字的那一层。
+        let polylines = reader.read(round).polylines
+        drinking = DrinkingInk(polylines: polylines, towardSpine: direction(of: polylines), since: .now)
+        let remaining = book.current.drawing.strokes.filter { stroke in
+            guard let previousBoundary else { return false }
+            return stroke.path.creationDate <= previousBoundary
+        }
+        book.current.drawing = PKDrawing(strokes: remaining)
+        drawingRevision += 1
+        roundsCommitted += 1
     }
 
     // MARK: 开场（计划 P6，原型 startIntro）
@@ -746,6 +822,7 @@ final class DiaryPageModel {
         let writing = lastRoundRegion
         book.turnToNextPage()
         pageTurnCount += 1
+        drawingRevision += 1
         // 新的一页上没有「这一轮写的字」可以挨着，也没有已收下的分界点可言。
         // 分界点推进到现在：新页从零开始。
         committedBoundary = Date()

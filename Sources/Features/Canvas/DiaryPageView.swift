@@ -71,15 +71,25 @@ struct DiaryPageView: View {
                     PaperBackground(spread: spread)
                     // 页眉日期与页码：印刷体，是系统说的话（计划 P2）。第几张对开先按「第几页」算，
                     // P4 改成一轮一张对开后跟着换。
-                    PageFurniture(spread: spread, leafNumber: model.book.currentIndex + 1, dateLine: PageFurniture.dateLine(for: Date()), safe: screen.safeAreaInsets)
+                    PageFurniture(spread: spread, leafNumber: model.leafNumber, dateLine: PageFurniture.dateLine(for: Date()), safe: screen.safeAreaInsets)
 
                     HandwritingCanvas(
                         drawing: model.book.current.drawing,
-                        drawingRevision: model.pageTurnCount,
+                        drawingRevision: model.drawingRevision,
                         onStrokeBegan: { model.strokeBegan() },
                         onStrokeFinished: { model.strokeFinished($0) },
                         onPencilHoverChanged: { model.hoverChanged($0) }
                     )
+
+                    // 你这一轮被纸喝下去，喝完留一层压痕（计划 P4）。
+                    if let drinking = model.drinking {
+                        DrinkingInkView(ink: drinking)
+                    }
+
+                    // 他上一段话沉下去（计划 P4）。
+                    ForEach(model.sinking) { item in
+                        SinkingReplyView(item: item)
+                    }
 
                     // 魂已经写下、定格留在页上的那些。纸上的东西不该自己消失——
                     // 2026-09-01 之前只画「正在写的那一段」，于是第二段一开始写、

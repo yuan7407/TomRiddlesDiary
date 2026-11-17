@@ -101,12 +101,13 @@ nonisolated final class SpineRoundTests: XCTestCase {
         XCTAssertLessThan(try replyRegion(model).right, 455.5)
     }
 
-    /// 当时的故障：你的字横跨书脊。应该翻到新的一页、在那页上隔着书脊写出来，而不是整轮失败。
+    /// 当时的故障：你的字横跨书脊，他对面那一栏被占，整轮失败。先修成「翻页后隔着书脊写」；
+    /// P4 之后更彻底：成页时你的字被纸喝下去，对面那一栏本来就空着，连页都不用翻。
     @MainActor
-    func testWritingAcrossTheSpineTurnsThePageInsteadOfFailing() async throws {
+    func testWritingAcrossTheSpineStillGetsAReply() async throws {
         let model = await round(writingFrom: 340)
         XCTAssertEqual(model.phase, .replying, "整轮失败了：\(model.phase)")
-        XCTAssertEqual(model.pageTurnCount, 1)
+        XCTAssertEqual(model.pageTurnCount, 0, "你的字已被喝下去，不该再翻页")
         let region = try replyRegion(model)
         XCTAssertTrue(region.right < 455.5 || region.left > 495.5, "回应跨了书脊：\(region)")
     }

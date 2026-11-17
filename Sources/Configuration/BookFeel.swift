@@ -29,6 +29,28 @@ nonisolated enum BookFeel {
     /// 湿墨比干墨粗多少（比例）。湿的时候墨在纸面上鼓着，看起来略粗。
     static let wetInkWidthGain: Double = 0.18
 
+    /// 一轮的一生（计划 P4，网页原型 drawDrink / drawSinking / 压痕）。全部照搬原型，未经真机复核。
+    /// 长度是原型单位（乘 `PaperLook.pointsPerPrototypeUnit`）。
+    enum Drink {
+        /// 纸把你这一轮的字喝下去用多久（秒，原型 DRINK）。上一段回应沉下去也用这么久。
+        static let duration: TimeInterval = 1.5
+        /// 一笔接一笔地喝：第 i 笔（共 n 笔）晚 i/n × 0.55 × duration 开始，每笔喝 0.45 × duration。
+        static let staggerShare: Double = 0.55
+        static let perStrokeShare: Double = 0.45
+        /// 喝的时候朝书脊偏多远（原型 7）。
+        static let shiftTowardSpine: Double = 7
+        /// 墨宽从原来的宽度按 (1 − p)^0.8 收细，最后留一根 0.15 的线头（原型 2.7·(1−p)^0.8 + 0.15）。
+        static let widthExponent: Double = 0.8
+        static let widthFloor: Double = 0.15
+        /// 喝完留下的压痕：很淡（0.05）、略糊（1.2 点），在喝到四成以后才慢慢浮出来（原型 smooth(0.4, 1, q)）。
+        static let ghostOpacity: Double = 0.05
+        static let ghostBlur: Double = 1.2
+        static let ghostAppearsFrom: Double = 0.4
+        /// 上一段回应沉下去：朝书脊偏 8、糊到 2.4 点、淡到没有（原型 drawSinking）。
+        static let sinkShift: Double = 8
+        static let sinkBlur: Double = 2.4
+    }
+
     /// 笔尖那一滴（计划 P3，网页原型 Script.draw 末尾）：他正在写的那一笔，笔尖挂着一滴湿墨，
     /// 带一点反光。全部数值照搬原型，未经真机复核。
     enum NibBead {

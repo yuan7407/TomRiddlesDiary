@@ -4,13 +4,13 @@
 //
 //  文件职责：守住两件 2026-09-01 实测逼出来的事。
 //
-//  一、**写满一页要翻页，而不是说不出话。**
+//  一、**写满一页不能让他说不出话。**
 //     实测里用户和魂聊到第四轮就撞上「这一页放不下了」，然后魂完全没反应。
-//     一页纸写满是必然会发生的事，不是边缘情况。
+//     2026-11-17 起（计划 P4，决策 80 以网页原型为准）守法变了：成页时纸把你这一轮喝下去，
+//     这张对开腾空给他写，所以写满也不需要翻页了。「翻页」这条路仍保留给极端情况（见下面不许无限翻页）。
 //
-//  二、**翻页不能把旧页弄丢。** 翻过去之后旧页的字必须还在 `pages` 里。
-//     现在虽然还没有「翻回去」的手势，数据也必须先留住——
-//     等将来加手势时那些内容已经没了就来不及了。
+//  二、**你的字不能丢。** 原先的守法是「翻页后旧页的字还在」；现在你的字被喝下去，
+//     要守的是每一笔都原样交给喝字层（`DiaryPageModel.drinking`）变成压痕，而不是被删掉。
 //
 
 import Foundation
@@ -64,39 +64,58 @@ nonisolated final class DiaryBookTests: XCTestCase {
 
     // MARK: 写满自动翻页（本文件的重点）
 
-    /// **核心断言**：这一页放不下时自动翻页并在新页上写，而不是报「说不出话」。
-    ///
-    /// 夹具要造的场景很具体：**这一页放不下，但一张同样大的空白页放得下**。
-    /// 第一版我把页面做得太小，结果空白页也放不下，于是它正确地报了错、测试红了——
-    /// 是夹具没造对场景，不是代码错了。所以这里用「用户把整页写满」来制造拥挤。
+    /// **核心断言**：你把整页写满，他照样写得出来——纸把你这一轮喝下去、腾出地方（计划 P4），
+    /// 用不着翻页。
     @MainActor
-    func testAFullPageTurnsInsteadOfFallingSilent() async {
+    func testAFullPageIsDrunkAndHeStillWrites() async {
         let model = makeModel(replyText: "我是这本日记。你写下的每一页，我都记得。")
         model.pageAreaChanged(pageArea)
 
         model.strokeFinished(makeFullPageDrawing())
 
-        await waitUntil("翻页并开始写") { model.phase == .replying }
+        await waitUntil("开始写") { model.phase == .replying }
 
-        XCTAssertEqual(model.book.count, 2, "应该翻到了新的一页")
-        XCTAssertEqual(model.book.currentIndex, 1)
-        XCTAssertNotNil(model.reply, "翻页之后应该真的在写")
-        XCTAssertEqual(model.pageTurnCount, 1, "界面靠这个计数触发翻页动画")
+        XCTAssertNotNil(model.reply, "整页写满，他却没写出来")
+        XCTAssertEqual(model.pageTurnCount, 0, "喝下去就腾出了地方，不该再翻页")
+        XCTAssertEqual(model.roundsCommitted, 1)
     }
 
-    /// 翻页之后旧页上用户写的字还在。
+    /// 你的字被喝下去，不是被删掉：每一笔都原样交给喝字层，画布上的那份才清空。
     @MainActor
-    func testTheUsersInkStaysOnTheOldPageAfterTurning() async {
+    func testYourInkIsDrunkNotLost() async {
         let model = makeModel(replyText: "我是这本日记。你写下的每一页，我都记得。")
         model.pageAreaChanged(pageArea)
 
         let drawing = makeFullPageDrawing()
+        let revisionBefore = model.drawingRevision
         model.strokeFinished(drawing)
-        await waitUntil("翻页") { model.book.count == 2 }
+        await waitUntil("喝下去") { model.drinking != nil }
 
-        XCTAssertEqual(model.book.pages[0].drawing.strokes.count, drawing.strokes.count,
-                       "旧页上用户的字丢了")
-        XCTAssertTrue(model.book.current.drawing.strokes.isEmpty, "新页应该是空白的")
+        XCTAssertEqual(model.drinking?.polylines.count, drawing.strokes.count, "有笔画没交给喝字层，等于丢了")
+        XCTAssertTrue(model.book.current.drawing.strokes.isEmpty, "喝下去以后画布上不该还留着这一轮")
+        XCTAssertGreaterThan(model.drawingRevision, revisionBefore, "画布要靠这个版本号换掉笔迹")
+    }
+
+    /// 第二轮成页时，他上一段话沉下去（计划 P4）：进 `sinking`，不再是当前的回应，
+    /// 沉完以后离开这张对开。既不留在页上，也不凭空消失。
+    @MainActor
+    func testHisPreviousReplySinksWhenYouCommitAgain() async {
+        let model = makeModel(replyText: "嗯。")
+        model.pageAreaChanged(pageArea)
+
+        model.strokeFinished(makeDrawing())
+        await waitUntil("第一段开始写") { model.phase == .replying }
+        let first = model.reply?.sequence
+
+        // 第二轮：晚一点的笔画（分界点之后的才算新的一轮）。
+        try? await Task.sleep(for: .milliseconds(50))
+        model.strokeBegan()
+        model.strokeFinished(makeDrawing())
+        await waitUntil("第一段沉下去") { model.sinking.contains { $0.reply.sequence == first } }
+
+        XCTAssertEqual(model.roundsCommitted, 2)
+        XCTAssertTrue(model.settledReplies.isEmpty, "上一段不该还定格留在这张对开上")
+        await waitUntil("沉完离开") { model.sinking.isEmpty }
     }
 
     /// **不许无限翻页。** 一段回应在一张全新空白纸上都放不下时，
