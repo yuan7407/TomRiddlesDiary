@@ -796,6 +796,18 @@ final class DiaryPageModel {
                 print("── 魂 ── 隔着书脊放不下（\(error)），退回找空位")
                 #endif
             }
+        } else if facingColumns == nil {
+            // 只有一页（合上用外屏）：同一套按长短挑字号的排法，写在你那句下面或页顶（2026-11-17）。
+            do {
+                return try composer.composeOnSinglePage(
+                    text, below: writing, page: writableArea,
+                    on: inkMap(writableArea: writableArea, glyphSize: glyphSize), seed: seed
+                )
+            } catch {
+                #if DEBUG
+                print("── 魂 ── 外屏这一页放不下（\(error)），退回找空位")
+                #endif
+            }
         }
         return try composer.compose(
             text,
@@ -827,6 +839,7 @@ final class DiaryPageModel {
         case .scanned: "扫描出来的空位（右边和下方都放不下）"
         case .startOfPage: "可书写区域左上角（这一轮没有可挨着的字）"
         case .acrossSpine: "隔着书脊，你对面那页（和你那句齐平）"
+        case .singlePage: "只有一页（外屏）：你那句下面或页顶"
         }
     }
     #endif

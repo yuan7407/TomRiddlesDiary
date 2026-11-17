@@ -31,6 +31,9 @@ nonisolated final class SpineRoundTests: XCTestCase {
         func availability() async -> RecognitionAvailability { await recognize(PKDrawing()).availability }
     }
 
+    /// 一段 30 字上下的回应：原型的长度上限附近，最考验小屏。
+    private let replyText = "你只写了这一个词。它是想问我什么，还是随手试试笔？"
+
     private let spread = SpreadGeometry(
         bounds: PageRegion(left: 0, top: 0, width: 951, height: 669),
         fold: PageRegion(left: 455.5, top: 0, width: 40, height: 669)
@@ -51,18 +54,23 @@ nonisolated final class SpineRoundTests: XCTestCase {
     }
 
     @MainActor
-    private func round(writingFrom x0: CGFloat) async -> DiaryPageModel {
+    private func round(writingFrom x0: CGFloat, outerScreen: Bool = false) async -> DiaryPageModel {
         let trigger = PageCommitTrigger(configuration: PageCommitConfiguration(
             pauseMultiplier: 2, shortestWait: 0.4, longestWait: 0.6,
             terminalPunctuationRatio: 1, hoverGrace: 0, hintFraction: 0.5
         ))
         let model = DiaryPageModel(
             recognizer: StubReader(), trigger: trigger,
-            oracle: StubOracle(text: "你只写了这一个词。它是想问我什么，还是随手试试笔？"), composer: .forSoul()
+            oracle: StubOracle(text: replyText), composer: .forSoul()
         )
-        model.pageAreaChanged(PageRegion(left: 53.5, top: 53.5, width: 951 - 53.5 - 137.5, height: 669 - 53.5 - 87.5))
-        model.foldChanged(spread.fold)
-        model.facingColumnsChanged(ReplyComposer.facingColumns(spread: spread, safeTop: 0, safeBottom: 34, safeTrailing: 84))
+        if outerScreen {
+            // 外屏 466 × 678：页边距 37.3（短边 8%），右边再让开 84 的状态栏，下边 34。
+            model.pageAreaChanged(PageRegion(left: 37.3, top: 37.3, width: 466 - 37.3 * 2 - 84, height: 678 - 37.3 * 2 - 34))
+        } else {
+            model.pageAreaChanged(PageRegion(left: 53.5, top: 53.5, width: 951 - 53.5 - 137.5, height: 669 - 53.5 - 87.5))
+            model.foldChanged(spread.fold)
+            model.facingColumnsChanged(ReplyComposer.facingColumns(spread: spread, safeTop: 0, safeBottom: 34, safeTrailing: 84))
+        }
         model.strokeFinished(writing(from: x0))
         for _ in 0 ..< 500 {
             if model.phase == .replying { break }
@@ -101,5 +109,15 @@ nonisolated final class SpineRoundTests: XCTestCase {
         XCTAssertEqual(model.pageTurnCount, 1)
         let region = try replyRegion(model)
         XCTAssertTrue(region.right < 455.5 || region.left > 495.5, "回应跨了书脊：\(region)")
+    }
+
+    /// 2026-11-17 用户实测：合上（外屏）写字永远没有回应。外屏能写字的宽度只有约 300 点，
+    /// 旧排法按 9 毫米固定字号排、八行放不下，翻页后照样放不下。外屏也要用原型那套按长短挑字号的排法。
+    @MainActor
+    func testClosedOuterScreenStillGetsAReply() async throws {
+        let model = await round(writingFrom: 60, outerScreen: true)
+        XCTAssertEqual(model.phase, .replying, "外屏上整轮失败了：\(model.phase)")
+        let region = try replyRegion(model)
+        XCTAssertLessThanOrEqual(region.right, 466 - 84 + 1, "回应伸进了状态栏那一列")
     }
 }

@@ -98,6 +98,8 @@ nonisolated struct ReplyPlacement: Equatable, Sendable {
         case startOfPage
         /// 对开时隔着书脊写在你对面那页、和你那句齐平（计划 P3，原型 composeHis()）。
         case acrossSpine
+        /// 只有一页（合上用外屏）：写在你那句下面，或从页顶写（2026-11-17）。
+        case singlePage
     }
 
     /// 文字块左上角在页面上的位置。可以直接当作排版的 origin。

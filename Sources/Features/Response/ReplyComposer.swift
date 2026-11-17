@@ -164,12 +164,50 @@ nonisolated struct ReplyComposer: Sendable {
         seed: UInt64,
         then extraStrokes: [Polyline] = []
     ) throws -> ComposedReply {
-        let column = columns.column(facing: writing)
+        var random = SeededRandomNumberGenerator(seed: seed &+ 7)
+        let jitter = (Double.random(in: 0 ..< 1, using: &random) - 0.5) * SoulHand.alignJitter * PaperLook.pointsPerPrototypeUnit
+        // 和你那句齐平：第一行顶边 = 你那句的顶边 − 0.12 字高 ± 7。
+        return try compose(
+            text, inColumn: columns.column(facing: writing), slot: .acrossSpine, on: inkMap, seed: seed, then: extraStrokes,
+            wantedTops: { size in [writing.top - size * SoulHand.alignRaise + jitter] }
+        )
+    }
+
+    /// 只有一页时的装配（合上用外屏，2026-11-17）：同一套按长短挑字号、手排，栏就是整页。
+    /// 先试写在你那句**下面**（隔一道行距），放不下再从页顶写；都放不下就报放不下，由模型翻页。
+    ///
+    /// 为什么要有它：外屏只有约 300 点宽，旧排法按 9 毫米的固定字号排，一段二三十字要 8 行，
+    /// 空白页上也放不下，于是翻页、失败、再翻页（2026-11-17 用户实测「合上就没有回应」）。
+    /// 原型里合上是封面（P7），没有「在外屏上写」这件事；在做封面之前，先让它能写。
+    func composeOnSinglePage(
+        _ text: String,
+        below writing: PageRegion?,
+        page: PageRegion,
+        on inkMap: PageInkMap,
+        seed: UInt64
+    ) throws -> ComposedReply {
+        try compose(text, inColumn: page, slot: .singlePage, on: inkMap, seed: seed, wantedTops: { size in
+            let gap = size * (SoulHand.lineSpacingRatio - 1)   // 一道行距的空：和行与行之间同一个空
+            return (writing.map { [$0.bottom + gap] } ?? []) + [page.top]
+        })
+    }
+
+    /// 在一栏里写一段话（原型 composeHis 的核心）：字号按话的长短定，五档里挑断行最顺的；
+    /// 照原型的「手」排；按 `wantedTops` 给的顶边依次试，第一个不压字的就用它。
+    /// - Parameter wantedTops: 给定字号，返回想放的顶边（依次尝试）。每个都会夹进这一栏的上下限。
+    private func compose(
+        _ text: String,
+        inColumn column: PageRegion,
+        slot: ReplyPlacement.Slot,
+        on inkMap: PageInkMap,
+        seed: UInt64,
+        then extraStrokes: [Polyline] = [],
+        wantedTops: (Double) -> [Double]
+    ) throws -> ComposedReply {
         let unit = PaperLook.pointsPerPrototypeUnit
         var random = SeededRandomNumberGenerator(seed: seed &+ 5)
-        func next() -> Double { Double.random(in: 0 ..< 1, using: &random) }
-
-        let x = column.left + next() * SoulHand.startJitter * unit
+        let x = column.left + Double.random(in: 0 ..< 1, using: &random) * SoulHand.startJitter * unit
+        let width = column.right - x
         let base = Self.baseGlyphSize(characterCount: text.filter { !$0.isWhitespace }.count) * unit
         let hand = Self.hand(seed: seed)
 
@@ -178,7 +216,7 @@ nonisolated struct ReplyComposer: Sendable {
         for ratio in SoulHand.sizeTrials {
             let size = base * ratio
             let trial = try layout.layOut(text, configuration: GlyphStrokeLayoutConfiguration(
-                glyphSize: size, lineWidth: column.width, lineSpacingRatio: SoulHand.lineSpacingRatio,
+                glyphSize: size, lineWidth: width, lineSpacingRatio: SoulHand.lineSpacingRatio,
                 origin: CGPoint(x: x, y: 0), hand: hand
             ))
             guard !trial.isEmpty else { throw ReplyPlacementFailure.textProducesNoInk(trial.uncoveredCharacters) }
@@ -187,22 +225,25 @@ nonisolated struct ReplyComposer: Sendable {
         }
         guard let best else { throw ReplyPlacementFailure.noRoomOnThisPage }
         let size = best.size
-
-        // 和你那句齐平：第一行顶边 = 你那句的顶边 − 0.12 字高 ± 7，再夹在这一栏的上下限之间。
         // 竖直平移不改变换行，所以用试排时的行数就够了。
         let blockHeight = Self.blockHeight(lines: best.lines, size: size)
-        let wanted = writing.top - size * SoulHand.alignRaise + (next() - 0.5) * SoulHand.alignJitter * unit
-        let y = min(max(wanted, column.top), max(column.top, column.bottom - blockHeight))
+        // 最小的字号也比这一栏高：放不下就是放不下，不把字写到纸外。原型只在代价里 +100，
+        // 因为它的版面总够大；外屏和小纸上不够，必须明说（由模型决定翻页还是如实报错）。
+        guard blockHeight <= column.height else { throw ReplyPlacementFailure.noRoomOnThisPage }
+        let lowest = max(column.top, column.bottom - blockHeight)
 
-        let laidOut = try layout.layOut(text, configuration: GlyphStrokeLayoutConfiguration(
-            glyphSize: size, lineWidth: column.width, lineSpacingRatio: SoulHand.lineSpacingRatio,
-            origin: CGPoint(x: x, y: y), hand: hand
-        ))
-        guard let region = laidOut.boundingBox else { throw ReplyPlacementFailure.textProducesNoInk(laidOut.uncoveredCharacters) }
-        guard inkMap.isFree(region) else { throw ReplyPlacementFailure.noRoomOnThisPage }
-
-        let placement = ReplyPlacement(origin: Point2D(x: x, y: y), lineWidth: column.width, region: region, slot: .acrossSpine)
-        return finish(text, laidOut: laidOut, placement: placement, glyphSize: size, seed: seed, extraStrokes: extraStrokes)
+        for wanted in wantedTops(size) {
+            let y = min(max(wanted, column.top), lowest)
+            let laidOut = try layout.layOut(text, configuration: GlyphStrokeLayoutConfiguration(
+                glyphSize: size, lineWidth: width, lineSpacingRatio: SoulHand.lineSpacingRatio,
+                origin: CGPoint(x: x, y: y), hand: hand
+            ))
+            guard let region = laidOut.boundingBox else { throw ReplyPlacementFailure.textProducesNoInk(laidOut.uncoveredCharacters) }
+            guard inkMap.isFree(region) else { continue }
+            let placement = ReplyPlacement(origin: Point2D(x: x, y: y), lineWidth: width, region: region, slot: slot)
+            return finish(text, laidOut: laidOut, placement: placement, glyphSize: size, seed: seed, extraStrokes: extraStrokes)
+        }
+        throw ReplyPlacementFailure.noRoomOnThisPage
     }
 
     /// 两页各自能写字的那一栏。边距照原型（`SoulHand`），右页再让开系统安全区（Duo 内屏右侧是竖排状态栏）。
