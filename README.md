@@ -65,7 +65,7 @@ scripts/                  repo_check.sh（提交前检查）、check_oracle_key.
 ## 运行与验证
 
 打开 `TomRiddlesDiary.xcodeproj`，scheme 选 `TomRiddlesDiary`，运行目标选 **iPhone Duo** 模拟器（iOS 27.3），Run。
-模拟器启动时是合上的（外屏亮）；在 Simulator 里摊开合页才是对开的内屏。DEBUG 构建会在控制台打出合页姿态与折缝。
+Xcode 27.3 没有 Simulator.app，模拟器窗口是 **DeviceHub**（`Xcode-beta.app/Contents/Applications/DeviceHub.app`）；`open -a Simulator` 会打开 Xcode 26.6 的旧版，它不认识 Duo，只看到黑屏。Duo 启动时是合上的（外屏亮、内屏黑），在 DeviceHub 里摊开合页才是对开的内屏。DEBUG 构建会在控制台打出合页姿态与折缝。
 
 用鼠标在纸上写几个**英文**字（模拟器没有中文识别模型），停笔一会儿这一页会被收下，魂的回应在你那句话旁边逐笔写出来。
 没有配 key 时魂用写死的假回应，纸上会大方说明那是假的。
@@ -226,7 +226,7 @@ bash scripts/repo_check.sh
 | M1（合并对开代码包） | ✅ 2026-11-16。笔法、节奏、湿墨、断行、下笔的样子、对开版面与合页积木。只需给 10 个新测试类补 `nonisolated` |
 | M2（只要 iPhone） | ✅ 2026-11-16。设备范围改 iPhone；密度改成 Duo 的 460 ppi ÷ 3（对开包原用的 430 ppi 不对）；页边距从安全区内侧量起（iPhone 上提示曾压在状态栏上） |
 | M3（文档） | ✅ 2026-11-16。README / MEMORY / AGENTS 去掉 iPad 描述，MEMORY 压到 120 行 |
-| M5（合页） | ⚙️ 合上状态已在 Duo 模拟器核对（closed、外屏、无折缝）；摊开与半开待核对。按姿态改变成页、折缝进占用图，等用户定方向 |
+| M5（合页） | ✅ 2026-11-17 在 Duo 模拟器上核对：合上 `closed`、半开 `ajar`、摊平 `flat` 都跟得上。外屏 466×678 点；**摊开的内屏是横的 951×669 点**，折缝竖在中间。**系统只在半开时报折缝**（x 455.5、宽 40 点），摊平时报的是「没有折缝」，所以要躲开折缝不能只靠系统给的区域。按姿态改变成页、折缝进占用图，还没有接 |
 
 ### 关于手写识别的模拟器限制
 

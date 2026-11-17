@@ -75,7 +75,7 @@
 
 ## 待用户决定 / 待用户执行
 
-0. **对开迁移收尾**：用户在 Duo 模拟器里摊开、半开合页，用 M5a 的日志核对姿态与折缝；之后开 PR 合进 `main`。
+0. **对开迁移收尾**：合页已核对（2026-11-17，见陷阱）。待做：开 PR 合进 `main`；用户要求按网页原型把细节做到位，原型文件尚未提供给 Agent。
 1. **对开的下一步方向（必须用户定）**：一页只留一段对话（他用你的墨写，写完你的字只剩压痕，要改决策 65/33）还是维持每段都留在页上；合页姿态要不要接成页行为（合上即成页、半开不成页，`BookPosture` 已写好）；按意思换行默认开（`BookFeel.lineBreaking.phraseBreakFill`）是否保留。
 2. **C1 参考答案等用户审**（`C1-response-quality-set.md`）。我自己标了拿不准的两处：第 4 段「自己变响」可能偏文学；第 9 段刻意保守。
 3. 正式 bundle ID 与签名主体；何时购买 Apple Developer Program。
@@ -106,8 +106,8 @@
 - **两个配置常量之间的隐藏耦合**（被测试撞出来的，不是事先想到的）：成页倒计时每 0.1 秒轮询，而最短预告期是 `shortestWait × hintFraction`；后者一旦短于前者，一次轮询就跨过整个预告期，「可撤销的预告」直接消失，症状只是「提示时有时无」。已加断言守住。 另：**浮点累加顺序会让「刚好画完」差一个尾数**：凡是「累加出来的总量」和「逐步推进的游标」要对得上的地方，两边必须用同一种累加方式，否则最后一笔差一点点画不完，没有任何报错。
 - 测试 target 开着 `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`：新测试类必须写成 `nonisolated final class …: XCTestCase`，否则继承来的初始化方法隔离冲突、直接编译失败（2026-11-16 对开包 10 个测试全中）。要测 `@MainActor` 类型时，隔离标在具体测试方法上。
 - **`.ignoresSafeArea()` 的 GeometryReader 读到的 `safeAreaInsets` 恒为 0**（2026-11-16 实测）：要从外层不忽略安全区的 GeometryReader 读。
-- Duo 模拟器有两块屏：截图要 `--display=primary`（外屏 1398×2034）或 `primary-1`（内屏 2007×2853）；`simctl` 不能控制合页，要在 Simulator 里手动开合。看 App 的 `print` 用 `simctl launch --console-pty`（`--console` 重定向到文件会被缓冲成空）。
-- iOS 27 的 `JSONDecoder` 接受末尾多逗号，别拿它当「坏 JSON」夹具。
+- Duo 模拟器有两块屏：截图要 `--display=primary`（外屏 1398×2034）或 `primary-1`（内屏 2007×2853）；`simctl` 不能控制合页，要在 **DeviceHub** 里手动开合（Xcode 27.3 用 DeviceHub 取代了 Simulator.app；`open -a Simulator` 会打开 26.6 的旧版，Duo 黑屏且被关机，2026-11-17 踩过）。看 App 的 `print` 用 `simctl launch --console-pty`（`--console` 重定向到文件会被缓冲成空）。
+- **Duo 的合页实测**（2026-11-17）：外屏 466×678 点；摊开的内屏是**横的** 951×669 点，折缝竖在中间。`reservedRegions(kind: .division)` **只在半开时**给出折缝（x 455.5、宽 40），摊平时给空——躲折缝不能只靠它。启动时会先误报一次 `flat`。iOS 27 的 `JSONDecoder` 接受末尾多逗号，别拿它当「坏 JSON」夹具。
 - 两条来自系统的日志噪声，不是 bug：`Invalid reflowable tokens count` / `Skipping adding principal lines to token` 来自系统的 `handwritingd`；`UIKitHoverGestureRecognizer ... has been in possible phase for N seconds` 是因为当前所有可用硬件都不支持悬停，识别器永远停在 possible 阶段。 Xcode 26.6 并行 test clone 触发 `DVTiPhoneSimulator` assertion → 测试关闭并行。工程用 objectVersion 77 同步文件组，`Sources/`、`Tests/` 下新增文件自动入 target。kiro-pet 已迁至 `110_KiroPet`，不得放回本仓库。
 
 ## 历史（精简）
