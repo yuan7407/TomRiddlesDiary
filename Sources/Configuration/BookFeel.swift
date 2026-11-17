@@ -29,6 +29,22 @@ nonisolated enum BookFeel {
     /// 湿墨比干墨粗多少（比例）。湿的时候墨在纸面上鼓着，看起来略粗。
     static let wetInkWidthGain: Double = 0.18
 
+    /// 笔尖那一滴（计划 P3，网页原型 Script.draw 末尾）：他正在写的那一笔，笔尖挂着一滴湿墨，
+    /// 带一点反光。全部数值照搬原型，未经真机复核。
+    enum NibBead {
+        /// 墨珠半径 = 此处墨宽 × 0.72，最小 1.1 原型单位（墨宽很细时也看得见）。
+        static let radiusOfInkWidth: Double = 0.72
+        static let minimumRadius: Double = 1.1
+        /// 颜色 rgba(14, 22, 70, 0.92)：比湿墨更深的蓝黑。
+        static let tone = InkTone(red: 14.0 / 255, green: 22.0 / 255, blue: 70.0 / 255)
+        static let opacity: Double = 0.92
+        /// 反光：白色 0.55，圆心偏左上 (−0.32r, −0.34r)，半径 0.26r。
+        static let glintOpacity: Double = 0.55
+        static let glintOffsetX: Double = -0.32
+        static let glintOffsetY: Double = -0.34
+        static let glintRadius: Double = 0.26
+    }
+
     // MARK: 他在读
 
     /// 他读你的字时，那一小段「重新变湿」的墨怎么走。

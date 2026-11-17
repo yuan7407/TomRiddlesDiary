@@ -161,17 +161,40 @@ struct HandwritingReplayView: View {
     private func render(frame: ReplayFrame, inkSeconds: TimeInterval?, in context: inout GraphicsContext) {
         // 每帧建一次（只是把各笔的起止时刻累加出来），不是每一笔建一次。
         let ages = inkSeconds.map { seconds in (timeline: InkAgeTimeline(sequence: sequence), seconds: seconds) }
+        var nib: StrokeSample?
         for (strokeIndex, stroke) in sequence.strokes.enumerated() {
             let progress = frame.progressByStroke.indices.contains(strokeIndex)
                 ? frame.progressByStroke[strokeIndex]
                 : 0
-            draw(stroke: stroke, progress: progress, in: &context) { fraction in
+            let tip = draw(stroke: stroke, progress: progress, in: &context) { fraction in
                 guard let ages else { return 0 }
                 return BookFeel.inkDrying.wetness(
                     age: ages.timeline.age(ofStroke: strokeIndex, fraction: fraction, secondsSinceStart: ages.seconds)
                 )
             }
+            if let tip { nib = tip }
         }
+        // 笔尖那一滴：只在他正在写（`inkSeconds` 非空 = 在播）、且这一笔还没写完时有。
+        // 定格（被你打断）和写完都没有——笔已经离开纸了。
+        if inkSeconds != nil, let nib { drawNibBead(at: nib, in: &context) }
+    }
+
+    /// 笔尖的墨珠（计划 P3，原型）：一滴深蓝黑的墨，左上角一点反光。
+    private func drawNibBead(at sample: StrokeSample, in context: inout GraphicsContext) {
+        let bead = BookFeel.NibBead.self
+        let width = PageAppearance.inkWidth(forPressure: sample.pressure, contact: sample.contact)
+        let radius = max(bead.minimumRadius * PaperLook.pointsPerPrototypeUnit, width * bead.radiusOfInkWidth)
+        let center = viewPoint(sample.point)
+        context.fill(
+            Path(ellipseIn: CGRect(x: center.x - radius, y: center.y - radius, width: radius * 2, height: radius * 2)),
+            with: .color(bead.tone.color.opacity(bead.opacity))
+        )
+        let glint = radius * bead.glintRadius
+        let glintCenter = CGPoint(x: center.x + radius * bead.glintOffsetX, y: center.y + radius * bead.glintOffsetY)
+        context.fill(
+            Path(ellipseIn: CGRect(x: glintCenter.x - glint, y: glintCenter.y - glint, width: glint * 2, height: glint * 2)),
+            with: .color(.white.opacity(bead.glintOpacity))
+        )
     }
 
     /// 画一笔当前该露出的部分。
@@ -181,17 +204,20 @@ struct HandwritingReplayView: View {
     /// - Parameter wetness: 给出这一笔上某个位置（0 起笔…1 收笔）现在有多湿。
     ///   用「沿笔画的位置」近似「这一笔里的时间」：起收笔有加减速，两者不完全相等，
     ///   但湿墨的渐变本来就是模糊的，差这一点看不出来。
+    /// - Returns: 这一笔正在长的话，返回笔尖所在的点（画墨珠用）；写完了或还没开始返回 nil。
+    @discardableResult
     private func draw(
         stroke: TimedStroke,
         progress: Double,
         in context: inout GraphicsContext,
         wetness: (Double) -> Double
-    ) {
-        guard let partial = StrokeGrowth.partial(of: stroke, progress: progress) else { return }
+    ) -> StrokeSample? {
+        guard let partial = StrokeGrowth.partial(of: stroke, progress: progress) else { return nil }
 
         switch partial {
         case .dot(let sample, let sizeFraction):
             drawDot(sample, sizeFraction: sizeFraction, wetness: wetness(0), in: &context)
+            return progress < 1 ? sample : nil
 
         case .line(let completeSegmentCount, let growingTip):
             for index in 0 ..< completeSegmentCount {
@@ -204,7 +230,9 @@ struct HandwritingReplayView: View {
             }
             if let tip = growingTip {
                 drawSegment(from: stroke.samples[completeSegmentCount], to: tip, wetness: wetness(1), in: &context)
+                return tip
             }
+            return nil
         }
     }
 

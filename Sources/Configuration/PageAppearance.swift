@@ -31,8 +31,9 @@ nonisolated enum PageAppearance {
     /// 墨色。偏暖的近黑，避免纯黑在暖色纸上显得像印刷。
     static let ink = dryInk.color
 
-    /// 干透的墨。数值与改动前的 `ink` 相同（偏暖的近黑）。
-    static let dryInk = InkTone(red: 0.12, green: 0.105, blue: 0.09)
+    /// 干透的墨：偏暖的近黑。2026-11-17 对齐网页原型的 DRYC = RGB(33, 28, 24)（决策 80），
+    /// 原值 (0.12, 0.105, 0.09) 与它差不到 3/255，统一成原型的值免得两处各一份。
+    static let dryInk = InkTone(red: 33.0 / 255, green: 28.0 / 255, blue: 24.0 / 255)
 
     /// 刚落下、还湿着的墨：蓝黑。
     ///
