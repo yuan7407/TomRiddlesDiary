@@ -10,6 +10,7 @@
 //  三，固定种子（`PaperLook.textureSeed`）保证每次打开都是同一张纸，像同一本本子。
 //
 //  为什么纸纹画一次、缓存成位图：两千多根纤维、九千个斑点每帧重画不划算，而纸本身不变。
+//  在后台线程画（2026-11-17）：内屏一张约 75 毫秒（Duo 模拟器实测），在主线程同步画会让摊开那一下卡住。
 //  书脊阴影单独每次画：它跟着合页角度变（P7），而且只是两道渐变，便宜。
 //
 //  所有数值来自 `PaperLook`（原型 `PAPER()` / `drawGutter()` 的原值）；这里只有算法本身的常数
@@ -25,14 +26,26 @@ struct PaperBackground: View {
     var spineDepth: Double = 0
 
     @Environment(\.displayScale) private var displayScale
+    /// 当前尺寸的纸纹。还没画好时为 nil，先铺纸的底色（见下）。
+    @State private var texture: CGImage?
 
     var body: some View {
-        Canvas { context, size in
-            if let texture = PaperTexture.image(size: size, displayScale: displayScale) {
-                context.draw(Image(decorative: texture, scale: displayScale), in: CGRect(origin: .zero, size: size))
+        GeometryReader { geometry in
+            Canvas { context, size in
+                if let texture, texture.width == PaperTexture.pixels(size.width, displayScale),
+                   texture.height == PaperTexture.pixels(size.height, displayScale) {
+                    context.draw(Image(decorative: texture, scale: displayScale), in: CGRect(origin: .zero, size: size))
+                } else {
+                    // 纸纹在后台画（2026-11-17：摊开时内屏要现画一张约 2853 × 2007 像素的图，
+                    // 在主线程上同步画会卡住那几帧）。画好之前先铺纯色的纸，换上纹理时只是纸面多了细节。
+                    context.fill(Path(CGRect(origin: .zero, size: size)), with: .color(PaperTexture.baseColor))
+                }
+                if let fold = spread.fold, let vertical = spread.foldIsVertical {
+                    PaperTexture.drawSpine(in: &context, fold: fold, vertical: vertical, depth: spineDepth)
+                }
             }
-            if let fold = spread.fold, let vertical = spread.foldIsVertical {
-                PaperTexture.drawSpine(in: &context, fold: fold, vertical: vertical, depth: spineDepth)
+            .task(id: PaperTexture.CacheKey(size: geometry.size, scale: displayScale)) {
+                texture = await PaperTexture.image(size: geometry.size, displayScale: displayScale)
             }
         }
         .allowsHitTesting(false)
@@ -45,25 +58,42 @@ enum PaperTexture {
     /// 按像素尺寸缓存。转屏、开合会换尺寸，每种尺寸只画一次。
     private static var cache: [CacheKey: CGImage] = [:]
 
-    private struct CacheKey: Hashable {
+    struct CacheKey: Hashable, Sendable {
         let width: Int
         let height: Int
+        let scale: CGFloat
+
+        init(size: CGSize, scale: CGFloat) {
+            width = PaperTexture.pixels(size.width, scale)
+            height = PaperTexture.pixels(size.height, scale)
+            self.scale = scale
+        }
     }
 
-    /// 某个尺寸（页面点）的纸纹位图。尺寸为 0 时返回 nil（视图第一次布局前会遇到）。
-    static func image(size: CGSize, displayScale: CGFloat) -> CGImage? {
-        let pixelWidth = Int((size.width * displayScale).rounded())
-        let pixelHeight = Int((size.height * displayScale).rounded())
-        guard pixelWidth > 0, pixelHeight > 0 else { return nil }
-        let key = CacheKey(width: pixelWidth, height: pixelHeight)
+    nonisolated static func pixels(_ points: CGFloat, _ scale: CGFloat) -> Int {
+        Int((points * scale).rounded())
+    }
+
+    /// 纸纹还没画好时铺的底色，就是纸纹的底色。
+    static let baseColor = Color(.sRGB, red: PaperLook.base.red, green: PaperLook.base.green, blue: PaperLook.base.blue)
+
+    /// 某个尺寸（页面点）的纸纹位图，在后台线程上画。尺寸为 0 时返回 nil（视图第一次布局前会遇到）。
+    static func image(size: CGSize, displayScale: CGFloat) async -> CGImage? {
+        let key = CacheKey(size: size, scale: displayScale)
+        guard key.width > 0, key.height > 0 else { return nil }
         if let hit = cache[key] { return hit }
-        let made = render(pixelWidth: pixelWidth, pixelHeight: pixelHeight, displayScale: displayScale)
+        let made = await Task.detached(priority: .userInitiated) {
+            render(pixelWidth: key.width, pixelHeight: key.height, displayScale: displayScale)
+        }.value
+        #if DEBUG
+        print("── 纸 ── 画了一张 \(key.width)×\(key.height) 的纸纹")
+        #endif
         cache[key] = made
         return made
     }
 
-    /// 原型 `PAPER()` 的移植。坐标用页面点，`context` 已按屏幕倍率缩放。
-    private static func render(pixelWidth: Int, pixelHeight: Int, displayScale: CGFloat) -> CGImage? {
+    /// 原型 `PAPER()` 的移植。坐标用页面点，`context` 已按屏幕倍率缩放。只用局部变量，可以在任何线程上跑。
+    nonisolated private static func render(pixelWidth: Int, pixelHeight: Int, displayScale: CGFloat) -> CGImage? {
         guard let context = CGContext(
             data: nil,
             width: pixelWidth,
@@ -121,8 +151,8 @@ enum PaperTexture {
 
         // 暗角
         radialGlow(context, center: CGPoint(x: width / 2, y: height / 2),
-                   from: height * PaperLook.Vignette.innerRadiusOfHeight,
-                   to: width * PaperLook.Vignette.outerRadiusOfWidth,
+                   from: PaperLook.Vignette.innerRadius * unit,
+                   to: PaperLook.Vignette.outerRadius * unit,
                    tint: PaperLook.Vignette.tint, innerAlpha: 0, outerAlpha: PaperLook.Vignette.edgeAlpha, extendOutward: true)
 
         // 书口的细线
@@ -165,7 +195,7 @@ enum PaperTexture {
 
     // MARK: 小工具
 
-    private static func cgColor(_ tint: PaperTint, alpha: Double) -> CGColor {
+    nonisolated private static func cgColor(_ tint: PaperTint, alpha: Double) -> CGColor {
         CGColor(srgbRed: tint.red, green: tint.green, blue: tint.blue, alpha: alpha)
     }
 
@@ -173,7 +203,7 @@ enum PaperTexture {
         Color(.sRGB, red: tint.red, green: tint.green, blue: tint.blue, opacity: alpha)
     }
 
-    private static func radialGlow(
+    nonisolated private static func radialGlow(
         _ context: CGContext, center: CGPoint, from inner: Double, to outer: Double,
         tint: PaperTint, innerAlpha: Double, outerAlpha: Double, extendOutward: Bool
     ) {

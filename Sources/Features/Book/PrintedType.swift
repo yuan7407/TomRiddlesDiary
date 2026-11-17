@@ -87,7 +87,9 @@ struct PageFurniture: View {
     let spread: SpreadGeometry
     /// 第几张对开。左页页码 = 2n，右页 = 2n + 1（原型的编法：第 0 张是扉页）。
     let leafNumber: Int
-    let date: Date
+    /// 页眉那一行（「十一月十七日　星期二」）。传文字而不是 `Date`：`Date()` 每次都不同，
+    /// 会让页眉在每次界面刷新时都重画一遍（2026-11-17 卡顿排查）；同一天的文字相等，SwiftUI 就跳过它。
+    let dateLine: String
     /// 系统安全区。页眉要避开状态栏，所以从安全区内侧量（与正文的页边距同一个道理）。
     let safe: EdgeInsets
 
@@ -95,10 +97,6 @@ struct PageFurniture: View {
         Canvas { context, size in
             let unit = PaperLook.pointsPerPrototypeUnit
             let p = PaperLook.Printed.self
-            let calendar = Calendar(identifier: .gregorian)
-            let parts = calendar.dateComponents([.month, .day, .weekday], from: date)
-            let dateLine = ChineseNumerals.dateLine(month: parts.month ?? 1, day: parts.day ?? 1, weekday: parts.weekday ?? 1)
-
             let rightEdge = size.width - safe.trailing - p.outerMargin * unit
             let leftEdge = safe.leading + p.outerMargin * unit
             let dateBaseline = safe.top + p.dateBaselineFromTop * unit
@@ -114,6 +112,11 @@ struct PageFurniture: View {
         }
         .allowsHitTesting(false)
         .accessibilityHidden(true)
+    }
+
+    static func dateLine(for date: Date) -> String {
+        let parts = Calendar(identifier: .gregorian).dateComponents([.month, .day, .weekday], from: date)
+        return ChineseNumerals.dateLine(month: parts.month ?? 1, day: parts.day ?? 1, weekday: parts.weekday ?? 1)
     }
 }
 

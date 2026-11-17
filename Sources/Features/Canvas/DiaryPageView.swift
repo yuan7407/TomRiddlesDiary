@@ -66,10 +66,11 @@ struct DiaryPageView: View {
                     PaperBackground(spread: spread)
                     // 页眉日期与页码：印刷体，是系统说的话（计划 P2）。第几张对开先按「第几页」算，
                     // P4 改成一轮一张对开后跟着换。
-                    PageFurniture(spread: spread, leafNumber: model.book.currentIndex + 1, date: Date(), safe: screen.safeAreaInsets)
+                    PageFurniture(spread: spread, leafNumber: model.book.currentIndex + 1, dateLine: PageFurniture.dateLine(for: Date()), safe: screen.safeAreaInsets)
 
                     HandwritingCanvas(
                         drawing: model.book.current.drawing,
+                        drawingRevision: model.pageTurnCount,
                         onStrokeBegan: { model.strokeBegan() },
                         onStrokeFinished: { model.strokeFinished($0) },
                         onPencilHoverChanged: { model.hoverChanged($0) }

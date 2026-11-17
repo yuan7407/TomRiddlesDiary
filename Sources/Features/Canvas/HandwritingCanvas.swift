@@ -37,6 +37,10 @@ struct HandwritingCanvas: UIViewRepresentable {
     /// 不换的话翻页之后旧页的字还留在画布上，而它属于上一页。
     let drawing: PKDrawing
 
+    /// `drawing` 是第几版。只有它变了，画布才用 `drawing` 盖掉自己（见 `updateUIView`）。
+    /// 传「翻过几页」即可：模型只有翻页时才从外面换掉整页笔迹。
+    let drawingRevision: Int
+
     /// 笔刚落到纸上。
     let onStrokeBegan: () -> Void
 
@@ -107,8 +111,15 @@ struct HandwritingCanvas: UIViewRepresentable {
         // 会让 PencilKit 重建整个墨迹层，用户正在写的那一笔会被打断。
         // 这和 2026-08-29 那个「笔画写完就消失」是同一类错误
         // （见 `DiaryPageModel` 文件头：高频赋值给会触发重绘的东西）。
-        if canvas.drawing != drawing {
-            canvas.drawing = drawing
+        //
+        // 2026-11-17 又踩了一次（用户报「笔触写不出来」「Test 少了一竖」）：只比较内容还不够。
+        // 笔抬起时 `canvasViewDidEndUsingTool` 先到，PencilKit 这时可能还没把这一笔并进 `drawing`，
+        // 模型存下的是少一笔的旧版本；下一次视图更新时「内容不一样」，旧版本就把画布上刚写的那笔盖掉了。
+        // 所以改成**单向**：用户写的笔迹只从画布流向模型；模型只在自己换了整页（翻页）时才回写画布，
+        // 用 `drawingRevision` 区分这两种情况。
+        if context.coordinator.appliedRevision != drawingRevision {
+            context.coordinator.appliedRevision = drawingRevision
+            if canvas.drawing != drawing { canvas.drawing = drawing }
         }
     }
 
@@ -121,6 +132,10 @@ struct HandwritingCanvas: UIViewRepresentable {
     }
 
     final class Coordinator: NSObject, PKCanvasViewDelegate {
+        /// 画布上现在是第几版由模型给的笔迹（见 `updateUIView`）。
+        var appliedRevision: Int?
+        /// 笔已经抬起、但这一笔还没交给模型。等 PencilKit 报告笔迹变了再交（见 `canvasViewDidEndUsingTool`）。
+        private var finishPending = false
         var onStrokeBegan: () -> Void
         var onStrokeFinished: (PKDrawing) -> Void
         var onPencilHoverChanged: (Bool) -> Void
@@ -142,8 +157,26 @@ struct HandwritingCanvas: UIViewRepresentable {
         /// 用 `canvasViewDidEndUsingTool` 而不是 `canvasViewDrawingDidChange`：
         /// 后者在一笔的绘制过程中会连续触发，用它做成页判断会把「正在写」
         /// 误当成「写完一笔」。前者只在笔离开画布时触发一次。
+        ///
+        /// 但抬笔这一刻 `drawing` 里可能还没有这一笔（2026-11-17 实测会吞掉最后一笔），
+        /// 所以只记下「有一笔待交」，等 `canvasViewDrawingDidChange` 报告笔迹真的变了再交；
+        /// 下一轮事件循环兜底一次（什么都没画上的点按，笔迹不会变）。
         func canvasViewDidEndUsingTool(_ canvasView: PKCanvasView) {
-            onStrokeFinished(canvasView.drawing)
+            finishPending = true
+            DispatchQueue.main.async { [weak self, weak canvasView] in
+                guard let self, let canvasView else { return }
+                self.deliverFinishedStroke(canvasView.drawing)
+            }
+        }
+
+        func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {
+            deliverFinishedStroke(canvasView.drawing)
+        }
+
+        private func deliverFinishedStroke(_ drawing: PKDrawing) {
+            guard finishPending else { return }   // 正在写的过程中也会触发，那时不算写完一笔
+            finishPending = false
+            onStrokeFinished(drawing)
         }
 
         /// 悬停手势的状态变化。

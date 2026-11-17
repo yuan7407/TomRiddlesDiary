@@ -82,10 +82,12 @@ nonisolated enum PaperLook {
         static let centerAlpha: Double = 0.08
     }
 
-    /// 暗角：中间亮、四周略褐。内外半径按原型写成纸高、纸宽的比例。
+    /// 暗角：中间亮、四周略褐。原型写的是「纸高 × 0.35 到纸宽 × 0.62」，在它那张 890 × 626 的对开上
+    /// 就是 219 到 552 原型单位。这里存成**原型单位的定值**而不是按屏幕比例算：
+    /// 2026-11-17 实测，按比例算到 466 宽的外屏上，内外半径只差 50 点，暗角缩成一个硬边的圆。
     enum Vignette {
-        static let innerRadiusOfHeight: Double = 0.35
-        static let outerRadiusOfWidth: Double = 0.62
+        static let innerRadius: Double = 0.35 * 626
+        static let outerRadius: Double = 0.62 * 890
         static let tint = PaperTint(140, 110, 60)
         static let edgeAlpha: Double = 0.17
     }
