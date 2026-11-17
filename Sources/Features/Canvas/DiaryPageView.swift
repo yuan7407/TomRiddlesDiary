@@ -136,6 +136,11 @@ struct DiaryPageView: View {
                     print("── 合页 ── 姿态：\(new)")
                     #endif
                 }
+                .onChange(of: ReplyComposer.facingColumns(spread: spread, safeTop: screen.safeAreaInsets.top,
+                                                          safeBottom: screen.safeAreaInsets.bottom,
+                                                          safeTrailing: screen.safeAreaInsets.trailing), initial: true) { _, columns in
+                    model.facingColumnsChanged(columns)
+                }
                 .onChange(of: spread.fold, initial: true) { _, fold in
                     model.foldChanged(fold)
                     #if DEBUG

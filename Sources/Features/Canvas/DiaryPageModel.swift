@@ -367,6 +367,15 @@ final class DiaryPageModel {
         self.fold = fold
     }
 
+    /// 对开时两页各自能写字的那一栏（计划 P3）。nil = 没有竖缝（外屏），走原来的找空位。
+    /// 由界面算（它知道安全区），模型只拿来交给装配点。
+    private(set) var facingColumns: FacingColumns?
+
+    func facingColumnsChanged(_ columns: FacingColumns?) {
+        guard columns != facingColumns else { return }
+        facingColumns = columns
+    }
+
     /// 这个构建里的魂是不是在说写死的话（见 `OracleProvider.producesCannedReplies`）。
     /// 界面用它在 DEBUG 里把「这不是模型说的」写在纸上。
     var soulSaysCannedThings: Bool { oracle?.producesCannedReplies ?? false }
@@ -615,15 +624,25 @@ final class DiaryPageModel {
         let glyphSize = HandwritingFeel.referenceGlyphHeightInPoints
 
         do {
-            let composed = try composer.compose(
-                text,
-                glyphSize: glyphSize,
-                lineSpacingRatio: PageAppearance.lineSpacingRatio,
-                after: lastRoundRegion,
-                on: inkMap(writableArea: writableArea, glyphSize: glyphSize),
-                // 每轮换种子，落点与手抖才会变。同一轮内重算得到同一结果。
-                seed: HandwritingFeel.defaultSeed &+ replyRound
-            )
+            // 每轮换种子，落点与手抖才会变。同一轮内重算得到同一结果。
+            let seed = HandwritingFeel.defaultSeed &+ replyRound
+            let map = inkMap(writableArea: writableArea, glyphSize: glyphSize)
+            let composed: ComposedReply
+            // 对开时先隔着书脊写在你对面（计划 P3，原型）。那一栏已经有字（P4 之前，
+            // 上一轮的回应还留在页上）就退回原来的找空位，而不是压在别的字上。
+            if let facingColumns, let writing = lastRoundRegion,
+               let across = try? composer.composeAcrossSpine(text, facing: writing, columns: facingColumns, on: map, seed: seed) {
+                composed = across
+            } else {
+                composed = try composer.compose(
+                    text,
+                    glyphSize: glyphSize,
+                    lineSpacingRatio: PageAppearance.lineSpacingRatio,
+                    after: lastRoundRegion,
+                    on: map,
+                    seed: seed
+                )
+            }
             replyRound &+= 1
             uncoveredCharacters = composed.uncoveredCharacters
             beginReply(composed.sequence)
@@ -724,6 +743,7 @@ final class DiaryPageModel {
         case .belowWriting: "你那句话的下方"
         case .scanned: "扫描出来的空位（右边和下方都放不下）"
         case .startOfPage: "可书写区域左上角（这一轮没有可挨着的字）"
+        case .acrossSpine: "隔着书脊，你对面那页（和你那句齐平）"
         }
     }
     #endif

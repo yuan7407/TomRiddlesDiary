@@ -8,13 +8,12 @@
 //  里面没有任何「先写哪一笔」的信息），而普通字体存的是字的**外框轮廓**不是笔迹。
 //  要一笔一笔写出来，只能靠一份带笔顺的**中线**数据。这个文件就是它的入口。
 //
-//  两个数据来源（2026-08-29 起）：
+//  两个数据来源：
 //  一、汉字来自 makemeahanzi 的数据文件（见下）。
-//  二、标点、拉丁字母与数字来自本工程手写定义的 `AuthoredGlyphStrokes`
-//      （计划 E1c/E1d）——数据集里这些一个都没有，而没有它们就写不出一个完整句子，
-//      也写不出一个英文单词。
-//  查询顺序是先数据文件、后手写定义。之所以不倒过来：数据文件是有上游、有授权的
-//  权威数据，手写定义只是补它没覆盖的部分，不该有机会盖掉它。
+//  二、标点、拉丁字母与数字来自 `PrototypeGlyphs`——网页原型里的同一份数据（Hershey 单线体
+//      字母 + 原型画的半宽标点，2026-11-17 起，决策 80）。它取代了 2026-08-29 手写定义的
+//      `AuthoredGlyphStrokes`（E1c/E1d），那一套标点是全角的，句读后面空出一大块。
+//  查询顺序是先汉字数据、后原型字形：汉字数据是有上游、有授权的权威数据，不该有机会被盖掉。
 //
 //  数据来源与授权：
 //  makemeahanzi 项目的 graphics.txt，其中的 medians 字段即每笔的中线点序列。
@@ -68,8 +67,8 @@ nonisolated enum GlyphStrokeLookupFailure: Error, Equatable, Sendable, CustomStr
     /// 字形数据资源没打进包，或者格式不对。这是故障。
     case resourceUnavailable(String)
 
-    /// 资源正常，但这个字既不在数据集里、也没有手写定义。
-    /// 数据集覆盖汉字，`AuthoredGlyphStrokes` 覆盖标点（E1c）与拉丁字母数字（E1d）；
+    /// 资源正常，但这个字既不在汉字数据里、也不在原型字形里。
+    /// 汉字数据覆盖汉字，`PrototypeGlyphs` 覆盖标点与拉丁字母数字；
     /// 其余字符（生僻汉字、其他文字、emoji）会走到这里。
     case characterNotCovered(Character)
 
@@ -120,12 +119,15 @@ nonisolated struct GlyphStrokeProvider: Sendable {
     func strokes(for character: Character) throws -> GlyphStrokes {
         let table = try Self.loadedTable()
         guard let flattened = table[String(character)] else {
-            // 数据文件里没有，再问手写定义的那份（标点 E1c、拉丁字母与数字 E1d）。
-            if let authored = AuthoredGlyphStrokes.glyph(for: character) {
+            // 汉字数据里没有，再问原型字形（标点、拉丁字母、数字）。和汉字一样加密中线：
+            // Hershey 字形的点也很稀，直接连会有棱角。
+            if let glyph = PrototypeGlyphs.glyph(for: character) {
                 return GlyphStrokes(
                     character: character,
-                    strokes: authored.strokes(spacing: Self.smoothingTargetSpacing),
-                    advanceWidth: authored.advanceWidth
+                    strokes: glyph.strokes.map {
+                        Polyline(points: StrokePathSmoothing.densified($0, targetSpacing: Self.smoothingTargetSpacing))
+                    },
+                    advanceWidth: glyph.advanceWidth
                 )
             }
             throw GlyphStrokeLookupFailure.characterNotCovered(character)
@@ -155,7 +157,7 @@ nonisolated struct GlyphStrokeProvider: Sendable {
 
     /// 这个字有没有笔顺数据。用于排版前先分辨哪些字画得出来。
     func covers(_ character: Character) -> Bool {
-        if AuthoredGlyphStrokes.glyph(for: character) != nil { return true }
+        if PrototypeGlyphs.glyph(for: character) != nil { return true }
         guard let table = try? Self.loadedTable() else { return false }
         return table[String(character)] != nil
     }

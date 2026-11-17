@@ -144,6 +144,125 @@ nonisolated struct ReplyComposer: Sendable {
             origin: CGPoint(x: placement.origin.x, y: placement.origin.y)
         ))
 
+        return finish(text, laidOut: laidOut, placement: placement, glyphSize: glyphSize, seed: seed)
+    }
+
+    /// 对开时的装配（计划 P3，原型 `composeHis()`）：隔着书脊写在你对面那页，和你那句齐平；
+    /// 字号按话的长短定，再在五档里挑断行最顺的；按原型的「手」排，不排成方阵。
+    ///
+    /// - Parameters:
+    ///   - writing: 你这一轮写的字占了哪块。决定他写在哪一页、从多高写起。
+    ///   - columns: 两页各自能写字的那一栏（`FacingColumns.make` 算好）。
+    ///   - inkMap: 占用图。他那一栏要是已经有字（P4 之前，上一轮的回应还留在页上），
+    ///     就报放不下，由调用方退回原来的找空位——不把字压在别的字上。
+    /// - Throws: `ReplyPlacementFailure`。
+    func composeAcrossSpine(
+        _ text: String,
+        facing writing: PageRegion,
+        columns: FacingColumns,
+        on inkMap: PageInkMap,
+        seed: UInt64
+    ) throws -> ComposedReply {
+        let column = columns.column(facing: writing)
+        let unit = PaperLook.pointsPerPrototypeUnit
+        var random = SeededRandomNumberGenerator(seed: seed &+ 5)
+        func next() -> Double { Double.random(in: 0 ..< 1, using: &random) }
+
+        let x = column.left + next() * SoulHand.startJitter * unit
+        let base = Self.baseGlyphSize(characterCount: text.filter { !$0.isWhitespace }.count) * unit
+        let hand = Self.hand(seed: seed)
+
+        // 同一句话试五个字号，挑代价最低的（原型：行数 × 3 + 坏断行 × 4 + 缩小 × 12，太高再 + 100）。
+        var best: (cost: Double, size: Double, lines: Int)?
+        for ratio in SoulHand.sizeTrials {
+            let size = base * ratio
+            let trial = try layout.layOut(text, configuration: GlyphStrokeLayoutConfiguration(
+                glyphSize: size, lineWidth: column.width, lineSpacingRatio: SoulHand.lineSpacingRatio,
+                origin: CGPoint(x: x, y: 0), hand: hand
+            ))
+            guard !trial.isEmpty else { throw ReplyPlacementFailure.textProducesNoInk(trial.uncoveredCharacters) }
+            let cost = Self.layoutCost(trial, size: size, ratio: ratio, availableHeight: column.height)
+            if best == nil || cost < best!.cost { best = (cost, size, trial.lineCount) }
+        }
+        guard let best else { throw ReplyPlacementFailure.noRoomOnThisPage }
+        let size = best.size
+
+        // 和你那句齐平：第一行顶边 = 你那句的顶边 − 0.12 字高 ± 7，再夹在这一栏的上下限之间。
+        // 竖直平移不改变换行，所以用试排时的行数就够了。
+        let blockHeight = Self.blockHeight(lines: best.lines, size: size)
+        let wanted = writing.top - size * SoulHand.alignRaise + (next() - 0.5) * SoulHand.alignJitter * unit
+        let y = min(max(wanted, column.top), max(column.top, column.bottom - blockHeight))
+
+        let laidOut = try layout.layOut(text, configuration: GlyphStrokeLayoutConfiguration(
+            glyphSize: size, lineWidth: column.width, lineSpacingRatio: SoulHand.lineSpacingRatio,
+            origin: CGPoint(x: x, y: y), hand: hand
+        ))
+        guard let region = laidOut.boundingBox else { throw ReplyPlacementFailure.textProducesNoInk(laidOut.uncoveredCharacters) }
+        guard inkMap.isFree(region) else { throw ReplyPlacementFailure.noRoomOnThisPage }
+
+        let placement = ReplyPlacement(origin: Point2D(x: x, y: y), lineWidth: column.width, region: region, slot: .acrossSpine)
+        return finish(text, laidOut: laidOut, placement: placement, glyphSize: size, seed: seed)
+    }
+
+    /// 两页各自能写字的那一栏。边距照原型（`SoulHand`），右页再让开系统安全区（Duo 内屏右侧是竖排状态栏）。
+    static func facingColumns(spread: SpreadGeometry, safeTop: Double, safeBottom: Double, safeTrailing: Double) -> FacingColumns? {
+        guard let fold = spread.fold, spread.foldIsVertical == true else { return nil }
+        let unit = PaperLook.pointsPerPrototypeUnit
+        let bounds = spread.bounds
+        let top = bounds.top + max(SoulHand.topInset * unit, safeTop)
+        let bottom = bounds.bottom - max(SoulHand.bottomInset * unit, safeBottom)
+        guard bottom > top else { return nil }
+        let leadingLeft = bounds.left + SoulHand.leadingPageOuterInset * unit
+        let leadingRight = fold.left - SoulHand.leadingPageInnerInset * unit
+        let trailingLeft = fold.right + SoulHand.trailingPageInnerInset * unit
+        let trailingRight = bounds.right - max(SoulHand.trailingPageOuterInset * unit, safeTrailing)
+        guard leadingRight > leadingLeft, trailingRight > trailingLeft else { return nil }
+        return FacingColumns(
+            leading: PageRegion(left: leadingLeft, top: top, width: leadingRight - leadingLeft, height: bottom - top),
+            trailing: PageRegion(left: trailingLeft, top: top, width: trailingRight - trailingLeft, height: bottom - top),
+            spineX: fold.left + fold.width / 2
+        )
+    }
+
+    /// 原型 `sizeFor`：按字数定基准字号（原型单位）。
+    static func baseGlyphSize(characterCount: Int) -> Double {
+        SoulHand.sizeSteps.first { characterCount <= $0.maxCharacters }?.size ?? SoulHand.smallestSize
+    }
+
+    /// 原型的排版代价。坏断行：除最后一行外，行尾不是收尾标点（断在词或句子中间）；
+    /// 以及最后一行短得只剩一两个字。
+    static func layoutCost(_ laidOut: LaidOutGlyphStrokes, size: Double, ratio: Double, availableHeight: Double) -> Double {
+        var bad = 0
+        for ending in laidOut.lineEndCharacters.dropLast() where !InteractionSettings.closingMarks.contains(ending) {
+            bad += 1
+        }
+        if laidOut.lineCount > 1, laidOut.lastLineWidth < SoulHand.orphanWidthInGlyphs * size { bad += 1 }
+        var cost = Double(laidOut.lineCount) * SoulHand.costPerLine + Double(bad) * SoulHand.costPerBadBreak + (1 - ratio) * SoulHand.costPerShrink
+        if blockHeight(lines: laidOut.lineCount, size: size) > availableHeight { cost += SoulHand.costIfTooTall }
+        return cost
+    }
+
+    /// 原型的块高：(行数 − 1) × 行距 + 一个字高（最后一行只算字本身，不算行距）。
+    static func blockHeight(lines: Int, size: Double) -> Double {
+        lines > 0 ? Double(lines - 1) * SoulHand.lineSpacingRatio * size + size : 0
+    }
+
+    static func hand(seed: UInt64) -> HandSetting {
+        HandSetting(
+            seed: seed,
+            lineSlope: SoulHand.lineSlope, lineSlopeJitter: SoulHand.lineSlopeJitter,
+            lineStartJitter: SoulHand.lineStartJitter,
+            hanSizeJitter: SoulHand.hanSizeJitter, otherSizeJitter: SoulHand.otherSizeJitter,
+            verticalJitter: SoulHand.verticalJitter,
+            hanShear: SoulHand.hanShear, latinShear: SoulHand.latinShear,
+            shrinkSink: SoulHand.shrinkSink, hanAdvanceFactor: SoulHand.hanAdvanceFactor
+        )
+    }
+
+    /// 两条装配路径共用的后半段：手绘化 → 笔法 → 节奏。
+    private func finish(
+        _ text: String, laidOut: LaidOutGlyphStrokes, placement: ReplyPlacement, glyphSize: Double, seed: UInt64
+    ) -> ComposedReply {
         // ③ 手绘化。参考尺度传当前字号，因为所有手感量都是「字高的比例」（决策 25）：
         //    字写得小，手抖幅度也该跟着小。
         let sequence = pipeline.process(

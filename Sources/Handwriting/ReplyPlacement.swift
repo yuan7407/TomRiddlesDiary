@@ -96,6 +96,8 @@ nonisolated struct ReplyPlacement: Equatable, Sendable {
         /// 注意它不代表「页面是空的」——页上可能还有更早的墨迹，
         /// 所以这一类之后仍然接扫描退路。
         case startOfPage
+        /// 对开时隔着书脊写在你对面那页、和你那句齐平（计划 P3，原型 composeHis()）。
+        case acrossSpine
     }
 
     /// 文字块左上角在页面上的位置。可以直接当作排版的 origin。

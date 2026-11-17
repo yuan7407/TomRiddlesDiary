@@ -16,10 +16,9 @@
 //  是传统的**等宽字面方格**（每字占满一个 em）。拿比例字宽去摆等宽字面的笔画，
 //  字与字会互相压。等宽也正是中文传统排版的常态。
 //
-//  字宽（2026-08-29，计划 E1c）：
-//  「等宽」只对汉字与全角标点成立。西文标点天生窄得多——一个英文句点占三成宽，
-//  若也占满一格，英文句子里会全是空洞。所以行内位置改用**游标**推进，
-//  每个字按自己的 `advanceWidth` 往前走，不再是「第几列 × 字宽」。
+//  字宽（2026-08-29 起用游标推进；2026-11-17 标点改半宽）：
+//  「等宽」只对汉字成立。标点与西文字母各有字宽（原型数据：逗号 0.52、句号 0.56、英文 i 很窄），
+//  所以行内位置用**游标**推进，每个字按自己的 `advanceWidth` 往前走，不是「第几列 × 字宽」。
 //
 //  断行规则（2026-11-12，计划 E2a）：
 //  在哪里换行由 `LineBreaker` 决定（行首行尾禁则、英文单词不拆、可选的按意思换行），
@@ -28,8 +27,7 @@
 //
 //  设计原因：
 //  - 没有笔顺数据的字**如实报告**，不静默跳过。跳过会让页面上凭空少一个字，
-//    而调用方完全不知道发生了什么。目前汉字与标点已覆盖，
-//    拉丁字母与数字仍缺（属计划 E1d）。
+//    而调用方完全不知道发生了什么。汉字、标点、拉丁字母与数字都已覆盖。
 //  - 输出直接是 `[Polyline]` 而不是「每个字 + 它的笔画」：引擎要的就是一串有序笔画，
 //    多包一层结构只会让调用方再拆一次。按字的信息用 `strokeCountsPerGlyph` 单独给出，
 //    需要按字做节奏（例如每写完一个字稍作停顿）时够用。
@@ -51,6 +49,27 @@ nonisolated struct GlyphStrokeLayoutConfiguration: Equatable, Sendable {
 
     /// 文字块左上角在页面中的位置。
     let origin: CGPoint
+
+    /// 手排（计划 P3）。nil = 照原样按方格排；给了就照网页原型的 `compose()` 排：
+    /// 行往右上走、字有大有小、右倾、行首错开、汉字略挤。只动第 ③ 步「摆到坐标上」
+    /// 和汉字字宽，换行规则仍然只有 `LineBreaker` 那一份（决策 52）。
+    var hand: HandSetting? = nil
+}
+
+/// 手排的参数。数值由装配层从 `SoulHand` 取来传进来：Handwriting 是纯逻辑层，不读 Configuration。
+/// 长度都是字高的比例。
+nonisolated struct HandSetting: Equatable, Sendable {
+    let seed: UInt64
+    let lineSlope: Double
+    let lineSlopeJitter: Double
+    let lineStartJitter: Double
+    let hanSizeJitter: Double
+    let otherSizeJitter: Double
+    let verticalJitter: Double
+    let hanShear: Double
+    let latinShear: Double
+    let shrinkSink: Double
+    let hanAdvanceFactor: Double
 }
 
 /// 排好版的笔画。
@@ -68,6 +87,11 @@ nonisolated struct LaidOutGlyphStrokes: Equatable, Sendable {
 
     let lineCount: Int
     let usedHeight: Double
+
+    /// 每一行最后一个字（空行不计）。装配层挑字号时用它判断「断在词中间」（原型 compose 的 bad）。
+    let lineEndCharacters: [Character]
+    /// 最后一行有多宽（页面点）。太短说明只剩一两个字孤零零挂着。
+    let lastLineWidth: Double
 
     var isEmpty: Bool { polylines.isEmpty }
 
@@ -167,10 +191,13 @@ nonisolated struct GlyphStrokeLayout: Sendable {
                 glyph = nil
             }
             glyphs.append(glyph)
-            pieces.append(LinePiece(
-                character: character,
-                advance: (glyph?.advanceWidth ?? 1) * configuration.glyphSize
-            ))
+            var advance = (glyph?.advanceWidth ?? 1) * configuration.glyphSize
+            // 手排时汉字挤一点（原型 w = adv × 0.97）。放在分行之前：挤了之后一行放得下更多字，
+            // 换行要按挤过的宽度算，否则排出来的行比算的短。
+            if let hand = configuration.hand, Self.kind(of: character, advance: glyph?.advanceWidth ?? 1) == .han {
+                advance *= hand.hanAdvanceFactor
+            }
+            pieces.append(LinePiece(character: character, advance: advance))
         }
 
         // ② 分行。规则只有 `LineBreaker` 这一份。
@@ -182,29 +209,55 @@ nonisolated struct GlyphStrokeLayout: Sendable {
         )
 
         // ③ 把每一行摆到坐标上。行内用游标推进，每个字按自己的宽度往前走。
+        //    手排时随机数的取用顺序照抄原型（每行：行首错开、行斜；每字：大小、上下浮动），
+        //    同一个种子才能和原型排出同样的「手」。
+        var random = configuration.hand.map { SeededRandomNumberGenerator(seed: $0.seed) }
+        func next() -> Double {
+            guard random != nil else { return 0.5 }
+            return Double.random(in: 0 ..< 1, using: &random!)
+        }
+        let size = configuration.glyphSize
         var polylines: [Polyline] = []
         var strokeCounts: [Int] = []
         var uncovered: [Character] = []
+        var lineEnds: [Character] = []
+        var lastLineWidth = 0.0
         for (line, indices) in lines.enumerated() {
             var cursorX = 0.0
             let originY = configuration.origin.y + Double(line) * lineHeight
+            var originX = configuration.origin.x
+            var slope = 0.0
+            if let hand = configuration.hand {
+                if line > 0 { originX += next() * hand.lineStartJitter * size }
+                slope = hand.lineSlope + (next() - 0.5) * hand.lineSlopeJitter
+            }
             for index in indices {
+                let character = pieces[index].character
                 if let glyph = glyphs[index] {
-                    let originX = configuration.origin.x + cursorX
-                    for stroke in glyph.strokes {
-                        polylines.append(place(
-                            stroke,
-                            atX: originX,
-                            y: originY,
-                            size: configuration.glyphSize
-                        ))
+                    let placed: [Polyline]
+                    if let hand = configuration.hand {
+                        let kind = Self.kind(of: character, advance: glyph.advanceWidth)
+                        let scale = size * (1 + (next() - 0.5) * (kind == .han ? hand.hanSizeJitter : hand.otherSizeJitter))
+                        let shear = kind == .latin ? hand.latinShear : hand.hanShear
+                        let x = originX + cursorX
+                        let y = originY + cursorX * slope + (next() - 0.5) * hand.verticalJitter * size + (size - scale) * hand.shrinkSink
+                        placed = glyph.strokes.map { stroke in
+                            Polyline(points: stroke.points.map { point in
+                                Point2D(x: x + (point.x + shear * (point.y - 0.5)) * scale, y: y + point.y * scale)
+                            })
+                        }
+                    } else {
+                        placed = glyph.strokes.map { place($0, atX: originX + cursorX, y: originY, size: size) }
                     }
+                    polylines.append(contentsOf: placed)
                     strokeCounts.append(glyph.strokes.count)
                 } else {
-                    uncovered.append(pieces[index].character)
+                    uncovered.append(character)
                 }
                 cursorX += pieces[index].advance
             }
+            if let last = indices.last { lineEnds.append(pieces[last].character) }
+            lastLineWidth = cursorX
         }
         let lineCount = lines.count
 
@@ -213,8 +266,22 @@ nonisolated struct GlyphStrokeLayout: Sendable {
             strokeCountsPerGlyph: strokeCounts,
             uncoveredCharacters: uncovered,
             lineCount: lineCount,
-            usedHeight: Double(lineCount) * lineHeight
+            usedHeight: Double(lineCount) * lineHeight,
+            lineEndCharacters: lineEnds,
+            lastLineWidth: lastLineWidth
         )
+    }
+
+    /// 原型把字分成四类：空格、拉丁（字母数字和撇号连字符）、标点（字宽不足一格的）、汉字。
+    /// 手排时汉字与其他字的大小抖动、右倾角度不同。
+    enum GlyphKind { case space, latin, punctuation, han }
+
+    static func kind(of character: Character, advance: Double) -> GlyphKind {
+        if character == " " { return .space }
+        if character.isASCII, character.isLetter || character.isNumber || character == "'" || character == "-" { return .latin }
+        // 破折号、省略号字宽是 1，但它们是标点：按「不是文字字符」判断，而不是只看字宽。
+        if advance < 1 || !character.isLetter { return .punctuation }
+        return .han
     }
 
     /// 把归一化的一笔放到页面上的指定字面方格里。

@@ -33,29 +33,35 @@ nonisolated final class GlyphStrokeTests: XCTestCase {
         }
     }
 
-    /// 标点已由 `PunctuationStrokes` 补上（计划 E1c，2026-08-29）。
-    /// 数据文件本身仍然不含它们，覆盖来自手写定义那张表。
-    func testPunctuationIsNowCovered() {
+    /// 标点由 `PrototypeGlyphs`（网页原型的数据）覆盖。汉字数据文件本身不含它们。
+    func testPunctuationIsCovered() {
         for character in "，。？！、：；「」（）《》…—·.,?!:;'\"()-" {
-            XCTAssertTrue(
-                provider.covers(character),
-                "标点「\(character)」应已由 E1c 补上"
-            )
+            XCTAssertTrue(provider.covers(character), "标点「\(character)」应该有字形")
         }
     }
 
-    /// 拉丁字母与数字已由 `LatinStrokes` 补上（计划 E1d，2026-08-29）。
+    /// 原型的中文标点是半宽的（决策 80）：全角那套曾让句读后面空出一大块。
+    /// 破折号与省略号本来就占满一格，不在此列。
+    func testChinesePunctuationIsHalfWidth() throws {
+        for character in "，。、；：！？" {
+            let advance = try provider.strokes(for: character).advanceWidth
+            XCTAssertLessThan(advance, 0.7, "「\(character)」应是半宽，实际 \(advance)")
+        }
+        XCTAssertEqual(try provider.strokes(for: "—").advanceWidth, 1, accuracy: 1e-9)
+    }
+
+    /// 拉丁字母与数字由 `PrototypeGlyphs`（Hershey 单线体）覆盖。
     /// 26 个小写、26 个大写、10 个数字，一个都不许漏——漏一个就会在英文单词里
     /// 留一个空洞，而且只有真的写到那个字母才会发现。
     func testLatinLettersAndDigitsAreNowCovered() {
         for character in "abcdefghijklmnopqrstuvwxyz" {
-            XCTAssertTrue(provider.covers(character), "小写「\(character)」应已由 E1d 补上")
+            XCTAssertTrue(provider.covers(character), "小写「\(character)」应该有字形")
         }
         for character in "ABCDEFGHIJKLMNOPQRSTUVWXYZ" {
-            XCTAssertTrue(provider.covers(character), "大写「\(character)」应已由 E1d 补上")
+            XCTAssertTrue(provider.covers(character), "大写「\(character)」应该有字形")
         }
         for character in "0123456789" {
-            XCTAssertTrue(provider.covers(character), "数字「\(character)」应已由 E1d 补上")
+            XCTAssertTrue(provider.covers(character), "数字「\(character)」应该有字形")
         }
     }
 
