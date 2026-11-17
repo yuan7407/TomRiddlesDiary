@@ -64,6 +64,9 @@ struct DiaryPageView: View {
                 ZStack(alignment: .topLeading) {
                     // 纸（纸纹 + 书脊阴影）在最底下；画布是透明的，只承接笔迹（计划 P1）。
                     PaperBackground(spread: spread)
+                    // 页眉日期与页码：印刷体，是系统说的话（计划 P2）。第几张对开先按「第几页」算，
+                    // P4 改成一轮一张对开后跟着换。
+                    PageFurniture(spread: spread, leafNumber: model.book.currentIndex + 1, date: Date(), safe: screen.safeAreaInsets)
 
                     HandwritingCanvas(
                         drawing: model.book.current.drawing,
@@ -86,11 +89,11 @@ struct DiaryPageView: View {
                     }
 
                     if let notice = recognitionNotice, model.phase == .nothingNew {
-                        pageNotice(notice, insets: insets, alignment: .top)
+                        pageNotice(notice, insets: noticeInsets(insets, spread: spread, size: geometry.size, belowDateWithSafeTop: screen.safeAreaInsets.top), alignment: .top)
                     }
 
                     if case .soulSilent(let failure) = model.phase {
-                        pageNotice(soulSilentNotice(failure), insets: insets, alignment: .bottom)
+                        pageNotice(soulSilentNotice(failure), insets: noticeInsets(insets, spread: spread, size: geometry.size), alignment: .bottom)
                     }
 
                     #if DEBUG
@@ -106,7 +109,7 @@ struct DiaryPageView: View {
                     if model.soulSaysCannedThings, !model.settledReplies.isEmpty || model.reply != nil {
                         pageNotice(
                             "⚠️ DEBUG：上面那段字是写死的假回应，它不读你写的内容。真正的魂还没接上（计划 E6d，要 API key）。",
-                            insets: insets,
+                            insets: noticeInsets(insets, spread: spread, size: geometry.size),
                             alignment: .bottom
                         )
                     }
@@ -136,7 +139,7 @@ struct DiaryPageView: View {
                 .onChange(of: spread.fold, initial: true) { _, fold in
                     model.foldChanged(fold)
                     #if DEBUG
-                    print("── 对开 ── 屏幕 \(Int(geometry.size.width))×\(Int(geometry.size.height)) 折缝 \(fold.map { "\($0)" } ?? "无")")
+                    print("── 对开 ── 屏幕 \(Int(geometry.size.width))×\(Int(geometry.size.height)) 折缝 \(fold.map { "\($0)" } ?? "无") 安全区 \(screen.safeAreaInsets)")
                     #endif
                 }
             }
@@ -175,6 +178,23 @@ struct DiaryPageView: View {
             bottom: safe.bottom + margin,
             trailing: safe.trailing + margin
         )
+    }
+
+    /// 纸上提示的边距：在 `pageInsets` 的基础上，有竖缝时把它限制在右页之内（计划 P2）。
+    ///
+    /// 为什么是右页：原型里「在这一页上手写」的提示和他的第一句话都在右页，左页留给你写；
+    /// 2026-11-17 实测之前，识别提示是一整行横跨书脊的。没有缝（外屏）或缝是横的时，照旧用整页。
+    /// - Parameter belowDateWithSafeTop: 提示放在页眉日期下面时传安全区顶边，提示会让开日期那一行；
+    ///   放在页底的提示传 nil。
+    private func noticeInsets(_ insets: EdgeInsets, spread: SpreadGeometry, size: CGSize, belowDateWithSafeTop: Double? = nil) -> EdgeInsets {
+        var confined = insets
+        if let safeTop = belowDateWithSafeTop {
+            let p = PaperLook.Printed.self
+            confined.top = max(insets.top, safeTop + (p.dateBaselineFromTop + p.noticeGapBelowDate) * PaperLook.pointsPerPrototypeUnit)
+        }
+        guard let fold = spread.fold, spread.foldIsVertical == true else { return confined }
+        confined.leading = max(insets.leading, fold.right + PageAppearance.pageMargin(for: size))
+        return confined
     }
 
     private func reportPageArea(_ size: CGSize, insets: EdgeInsets) {
@@ -239,10 +259,7 @@ struct DiaryPageView: View {
         insets: EdgeInsets,
         alignment: VerticalAlignment
     ) -> some View {
-        Text(text)
-            .font(.footnote)
-            .foregroundStyle(PageAppearance.ink.opacity(PageAppearance.noticeInkOpacity))
-            .multilineTextAlignment(.center)
+        PrintedNotice(text: text)
             .padding(insets)
             .frame(
                 maxWidth: .infinity,

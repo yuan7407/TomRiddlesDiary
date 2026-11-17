@@ -64,10 +64,6 @@ nonisolated enum PageAppearance {
         return inkRamp[Int((clamped * Double(inkRampSteps)).rounded())]
     }
 
-    /// 说明性文字（开发期读数、诚实提示、缺字告知）的墨色浓度。
-    /// 统一一处的原因：这类文字散在好几个视图里，各写一个透明度必然漂移成
-    /// 深浅不一。它们的共同点是「要看得见但不能抢走手写内容」。
-    static let noticeInkOpacity: Double = 0.55
 
 
     /// 行距，表达为字高的倍数。1.6 → 9 mm 的字行间约留 5.4 mm 空隙。

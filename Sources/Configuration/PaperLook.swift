@@ -102,6 +102,50 @@ nonisolated enum PaperLook {
         static let alphaStep: Double = 0.014
     }
 
+    // MARK: 印刷体（原型 printed() / drawFurniture()，计划 P2）
+
+    /// 「手写的是他，印刷的是系统」：系统说的话用凸版压印的样子——
+    /// 先在略偏下的位置印一道白色亮边，再在上面压一层灰褐墨，像铅字压进纸里。
+    enum Printed {
+        /// 思源宋体子集（决策 81，`scripts/subset_print_font.py` 生成）的 PostScript 名。
+        static let regularFontName = "NotoSerifSC-Regular"
+        static let semiboldFontName = "NotoSerifSC-SemiBold"
+        static let fontFiles = ["NotoSerifSC-Print-Regular", "NotoSerifSC-Print-SemiBold"]
+
+        static let inkTint = PaperTint(74, 56, 34)
+        static let defaultAlpha: Double = 0.55
+        /// 亮边相对墨字的偏移（原型单位）：往右下一点点，看起来是压下去的边。
+        static let highlightOffsetX: Double = 0.5
+        static let highlightOffsetY: Double = 0.7
+        /// 亮边透明度 = 这个系数 × min(1, 墨的透明度 ÷ 参照值)。墨越淡亮边越淡，不会出现只剩一道白的字。
+        static let highlightAlphaFactor: Double = 0.6
+        static let highlightAlphaReference: Double = 0.5
+
+        /// 一行印刷体的样式：字号与字距是原型单位，透明度 0…1。
+        struct Style: Equatable, Sendable {
+            let size: Double
+            let tracking: Double
+            let alpha: Double
+            let semibold: Bool
+        }
+
+        /// 页眉日期：右页右上角。
+        static let date = Style(size: 11.5, tracking: 2, alpha: 0.5, semibold: false)
+        /// 页码：左右两页的下角。
+        static let folio = Style(size: 10.5, tracking: 1.5, alpha: 0.42, semibold: false)
+        /// 纸上的系统提示（读不出哪种文字、他这次没写出来……）。
+        static let notice = Style(size: 12.5, tracking: 1.5, alpha: 0.62, semibold: false)
+
+        /// 页眉、页码离纸边多远（原型单位）。离书口 46；日期基线离上边 44；页码基线离下边 30。
+        static let outerMargin: Double = 46
+        static let dateBaselineFromTop: Double = 44
+        static let folioBaselineFromBottom: Double = 30
+        /// 纸上提示的顶边比日期基线再低多少（原型单位）。**原型里没有这条提示**（它是 App 自己的
+        /// 「读不出哪种文字」，计划 E4b），所以这个数不是照搬的：取日期字号的约两倍，让中间空出一行，
+        /// 2026-11-17 在 Duo 模拟器截图上目测定的。
+        static let noticeGapBelowDate: Double = 22
+    }
+
     // MARK: 书脊阴影（原型 drawGutter(depth)）
 
     /// depth 0…1 是「本子正在合上」的程度：0 = 摊平。阴影的半宽与浓度随它线性变化。
