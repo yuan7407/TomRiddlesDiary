@@ -140,3 +140,54 @@ struct PrintedNotice: View {
         .multilineTextAlignment(.center)
     }
 }
+
+/// 他那页页脚的「他读到的是：「…」」（计划 R3/P9，原型 drawPresent 里的那一行）。
+/// 他写在哪一页，就印在哪一页：看他那段字的中心在折缝哪一边。
+struct HeardLine: View {
+    let heard: String
+    let replyBox: PageRegion
+    let spread: SpreadGeometry
+    let safeBottom: Double
+
+    var body: some View {
+        Canvas { context, size in
+            let p = PaperLook.Printed.self
+            let unit = PaperLook.pointsPerPrototypeUnit
+            let shown = heard.count > p.heardMaxCharacters ? String(heard.prefix(p.heardMaxCharacters)) + "…" : heard
+            let onLeading: Bool
+            if let fold = spread.fold { onLeading = replyBox.left + replyBox.width / 2 < fold.left + fold.width / 2 } else { onLeading = true }
+            let x = onLeading || spread.fold == nil
+                ? p.outerMargin * unit
+                : (spread.fold?.right ?? 0) + p.heardInsetFromFold * unit
+            let baseline = size.height - safeBottom - p.heardBaselineFromBottom * unit
+            PrintedType.draw("他读到的是：「\(shown)」", style: p.heard, x: x, baseline: baseline, anchor: .leading, in: &context)
+        }
+        .allowsHitTesting(false)
+    }
+}
+
+/// 纸外的求助条（决策 67）：普通的系统界面，故意不像纸。文案与颜色在 `PaperLook.CareSlip`。
+struct CareSlipView: View {
+    let onDismiss: () -> Void
+
+    var body: some View {
+        let slip = PaperLook.CareSlip.self
+        let ink = Color(.sRGB, red: slip.ink.red, green: slip.ink.green, blue: slip.ink.blue)
+        HStack(alignment: .center, spacing: 16) {
+            Text(slip.text)
+                .font(.callout)
+                .foregroundStyle(ink)
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+            Button(slip.dismiss, action: onDismiss)
+                .buttonStyle(.bordered)
+                .tint(ink)
+        }
+        .padding(slip.padding)
+        .frame(maxWidth: slip.maxWidth)
+        .background(Color(.sRGB, red: slip.background.red, green: slip.background.green, blue: slip.background.blue),
+                    in: RoundedRectangle(cornerRadius: slip.cornerRadius))
+        .overlay(RoundedRectangle(cornerRadius: slip.cornerRadius)
+            .stroke(Color(.sRGB, red: slip.rule.red, green: slip.rule.green, blue: slip.rule.blue)))
+    }
+}

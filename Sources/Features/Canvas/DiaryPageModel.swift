@@ -562,7 +562,17 @@ final class DiaryPageModel {
         recognitionTask?.cancel()
         // 他上一段沉下去、你这一轮被纸喝下去（计划 P4）。开场白也一样沉下去（原型 greetingGhost）。
         beginNewRound(round: round, previousBoundary: committedBoundary)
-        recognition = await recognizer.recognize(round)
+
+        // 这一轮画成图（R3 发给模型看；R2 交给 Vision 读）。先画再识别：画图在主线程、很快。
+        let snapshot = HandwritingSnapshot.render(round)
+        let started = ContinuousClock.now
+        recognition = await recognizer.recognizeCarefully(round)
+        let systemSeconds = (ContinuousClock.now - started).inSeconds
+        // 系统识别没读出来，再让 Vision 读同一张图（R2）。两者都只作给模型的参考。
+        var visionText: String?
+        if recognition?.hasText != true, let snapshot {
+            visionText = await HandwritingSnapshot.readWithVision(snapshot.cgImage)
+        }
 
         // 推进分界点：此刻页面上的所有笔画都算「已经交出去过」。
         // 用整页的最晚时刻而不是这一轮的，这样即使中途有笔画顺序异常也不会重复交。
@@ -583,8 +593,59 @@ final class DiaryPageModel {
             glyphHeight: HandwritingFeel.referenceGlyphHeightInPoints,
             thresholds: BookFeel.writingManner
         )
-        await askSoul(strokeCount: round.strokes.count, manner: manner)
+        let deviceText = recognition?.hasText == true ? recognition?.text : visionText
+        #if DEBUG
+        diagnosis = RoundDiagnosis(
+            strokes: round.strokes.count,
+            systemText: recognition?.text,
+            systemSeconds: systemSeconds,
+            visionText: visionText,
+            imageBytes: snapshot?.png.count,
+            activeLanguages: recognition?.availability.active.map(\.minimalIdentifier) ?? [],
+            heard: nil
+        )
+        Self.saveDiagnosticImage(snapshot?.png, round: roundsCommitted)
+        print("── 识别（R0）── \(diagnosis?.line ?? "")")
+        #endif
+        await askSoul(strokeCount: round.strokes.count, manner: manner, deviceText: deviceText, handwriting: snapshot?.png)
     }
+
+    // MARK: 识别诊断（R0，只在 DEBUG）
+
+    #if DEBUG
+    /// 这一轮识别的经过。只在 DEBUG 构建里存在：它带着识别出的文字，属日记内容
+    /// （同决策 56 的刻意破例：不看识别出来的字就无法判断识别对不对）。纸角会印出 `line`。
+    struct RoundDiagnosis: Equatable {
+        let strokes: Int
+        let systemText: String?
+        let systemSeconds: Double
+        let visionText: String?
+        let imageBytes: Int?
+        let activeLanguages: [String]
+        var heard: String?
+
+        var line: String {
+            let system = systemText.map { "「\($0)」" } ?? "无"
+            let vision = visionText.map { "「\($0)」" } ?? "无"
+            let image = imageBytes.map { "\($0 / 1024)KB" } ?? "无"
+            let heardText = heard.map { "「\($0)」" } ?? "—"
+            return "DEBUG \(strokes)笔｜系统识别\(system) \(String(format: "%.1f", systemSeconds))s｜Vision\(vision)｜图\(image)｜语言\(activeLanguages.joined(separator: ","))｜他读到\(heardText)"
+        }
+    }
+
+    private(set) var diagnosis: RoundDiagnosis?
+
+    /// 把这一轮的图存进 App 自己的文档目录（diagnostics/），只在 DEBUG。
+    /// 用来在 Xcode 里下载容器、看看到底交出去的是什么样的笔迹。不上传、不进任何日志。
+    private static func saveDiagnosticImage(_ png: Data?, round: Int) {
+        guard let png,
+              let folder = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first?
+                .appendingPathComponent("diagnostics", isDirectory: true)
+        else { return }
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try? png.write(to: folder.appendingPathComponent("round-\(round).png"))
+    }
+    #endif
 
     // MARK: 问魂（计划 E6a）
 
@@ -595,13 +656,17 @@ final class DiaryPageModel {
     ///
     /// 每一种失败都走 `.soulSilent(原因)` 并如实显示，**绝不编一段话顶上**——
     /// 编一段的后果是用户以为魂读了他写的东西，而实际上根本没读到。
-    private func askSoul(strokeCount: Int, manner: WritingManner?) async {
+    /// - Parameters:
+    ///   - deviceText: 手机自己认出的字（系统识别，读不出时是 Vision 的）。可能为 nil 或认错。
+    ///   - handwriting: 这一轮笔迹的图（R3）。有图时手机没认出字也照样问：图才是他写的东西。
+    private func askSoul(strokeCount: Int, manner: WritingManner?, deviceText: String?, handwriting: Data?) async {
         guard let oracle else {
             // 这个构建没有配 provider。Release 当前就是这种状态，如实说。
             fallSilent(.notConfigured)
             return
         }
-        guard let text = recognition?.text, recognition?.hasText == true else {
+        let text = deviceText?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !text.isEmpty || handwriting != nil else {
             fallSilent(.nothingToSay)
             return
         }
@@ -610,7 +675,7 @@ final class DiaryPageModel {
 
         let spoken: OracleReply
         do {
-            spoken = try await oracle.respond(to: OracleRequest(text: text, strokeCount: strokeCount, manner: manner))
+            spoken = try await oracle.respond(to: OracleRequest(text: text, strokeCount: strokeCount, manner: manner, handwriting: handwriting))
         } catch let failure as OracleFailure {
             fallSilent(failure)
             return
@@ -632,8 +697,22 @@ final class DiaryPageModel {
             return
         }
 
+        // 他读到了什么、这句话的分量、要不要关照（R3 四行回答）。读到的那句印在他那页的页脚（P9）。
+        heard = spoken.heard
+        needsCare = spoken.needsCare
+        #if DEBUG
+        diagnosis?.heard = spoken.heard
+        print("── 魂 ── 读到「\(spoken.heard ?? "—")」 语气 \(spoken.mood ?? "—") 关照 \(spoken.needsCare ? "是" : "否")")
+        #endif
         await writeOnPage(spoken.text)
     }
+
+    /// 他认出你这一轮写的是什么（四行回答的「读到」）。新的一轮成页时清掉。
+    private(set) var heard: String?
+    /// 他觉得你需要真人的帮助（「关照：是」）。界面在纸外弹出求助条；你点「知道了」就收起。
+    private(set) var needsCare = false
+
+    func dismissCare() { needsCare = false }
 
     // MARK: 一轮的一生（计划 P4）
 
@@ -683,6 +762,7 @@ final class DiaryPageModel {
             }
         }
         greetingOnPage = false
+        heard = nil
 
         // ② 你这一轮被纸喝下去：从画布里拿出来，交给喝字的那一层。
         let polylines = reader.read(round).polylines

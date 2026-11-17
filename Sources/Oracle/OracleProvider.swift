@@ -49,18 +49,40 @@ nonisolated struct OracleRequest: Equatable, Sendable {
     /// 交给魂的只是 `WritingManner` 里那几个概括量，不含坐标和图像。
     let manner: WritingManner?
 
-    /// `manner` 有默认值，原来只传文字和笔数的调用处不用改。
-    init(text: String, strokeCount: Int, manner: WritingManner? = nil) {
+    /// 他这一轮手写的样子：白底黑字的 PNG（计划 R3，原型 snapshot()）。nil 表示不发图。
+    ///
+    /// ── 为什么要发图（2026-11-17 用户拍板「每轮都发图，和原型一致」）──
+    /// 真机实测，系统手写识别对手指写的英文大多认不出、中文九成认不出，纸上反复印「没读出字来」。
+    /// 原型的做法是让能看图的模型直接读笔迹：潦草、中英混写都比端上识别强得多，认不出时还会照规则说
+    /// 「看不清，写大一点」。代价是日记的笔迹图像会发给模型供应商——这比「只发识别出的文字」多，
+    /// 与 AGENTS「只发送完成任务所需的最少数据」有张力，由用户明确选择承担（决策 82）。
+    let handwriting: Data?
+
+    /// `manner`、`handwriting` 有默认值，原来只传文字和笔数的调用处不用改。
+    init(text: String, strokeCount: Int, manner: WritingManner? = nil, handwriting: Data? = nil) {
         self.text = text
         self.strokeCount = strokeCount
         self.manner = manner
+        self.handwriting = handwriting
     }
 
-    /// 发给模型的那条用户消息：他写的字，后面另起一行是下笔的样子（如果有）。
-    /// 放在 Oracle 层而不是某一个 provider 里，是为了以后换供应商时这句话的格式不会分叉。
+    /// 发给模型的那段文字（图另外附）。放在 Oracle 层而不是某一个 provider 里，
+    /// 是为了以后换供应商时这段话的格式不会分叉。
+    ///
+    /// 有图时：图是准的，手机自己认的字只作参考（常认错，甚至认成乱码）；没认出来就明说没认出来。
+    /// 没图时：照旧只有他写的字。两种情况下，下笔的样子都另起一行附在后面。
     func userContent(text trimmed: String) -> String {
-        guard let manner else { return trimmed }
-        return trimmed + "\n" + manner.sentenceForSoul
+        var lines: [String]
+        if handwriting != nil {
+            lines = [trimmed.isEmpty
+                ? "（手机没认出这几笔是什么字。）"
+                : "手机自己认的字（常认错，只作参考，以图为准）：\(trimmed)"]
+            lines.append("现在看附图，回应他刚写的这一句。")
+        } else {
+            lines = [trimmed]
+        }
+        if let manner { lines.append(manner.sentenceForSoul) }
+        return lines.joined(separator: "\n")
     }
 }
 
@@ -73,6 +95,13 @@ nonisolated struct OracleReply: Equatable, Sendable {
     /// 这不是文风偏好，是功能要求（详见仓库根的 `C1-response-quality-set.md`）。
     /// 这一层不截断：截断会把一句话砍成半截，比长更糟。约束长度是 prompt 的责任。
     let text: String
+
+    /// 他认出你写的是什么（四行回答的「读到」）。nil = 模型没给这一行；「看不清」是模型自己说认不出。
+    var heard: String? = nil
+    /// 这句话的分量，四选一：静、轻、重、暖（原型 MOODS）。P9 用它改变笔法；现在只记下来。
+    var mood: String? = nil
+    /// 他写了想伤害自己、活不下去的意思（「关照：是」）。为真时纸外弹出普通系统求助条（决策 67）。
+    var needsCare: Bool = false
 }
 
 /// 魂接不上的原因。**每一种都必须能对用户说清楚**，所以每种都带一句人话。

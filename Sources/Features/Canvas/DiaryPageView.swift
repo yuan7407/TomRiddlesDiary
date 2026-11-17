@@ -117,6 +117,24 @@ struct DiaryPageView: View {
                             }
                     }
 
+                    // 他读到的是什么：印在他那页的页脚（R3/P9）。读错了你一眼就知道是没看清，不是他答非所问。
+                    if let heard = model.heard, let reply = model.reply,
+                       let box = PageRegion.covering(reply.sequence.polylines) {
+                        HeardLine(heard: heard, replyBox: box, spread: spread, safeBottom: screen.safeAreaInsets.bottom)
+                    }
+
+                    #if DEBUG
+                    // R0 识别诊断：这一轮交了几笔、手机认出什么、用了多久、他读到什么。只在 DEBUG。
+                    if let line = model.diagnosis?.line {
+                        Text(line)
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundStyle(.red.opacity(0.7))
+                            .padding(insets)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+                            .allowsHitTesting(false)
+                    }
+                    #endif
+
                     if let notice = recognitionNotice, model.phase == .nothingNew {
                         pageNotice(notice, insets: noticeInsets(insets, spread: spread, size: geometry.size, belowDateWithSafeTop: screen.safeAreaInsets.top), alignment: .top)
                     }
@@ -188,6 +206,10 @@ struct DiaryPageView: View {
                 }
             }
             .ignoresSafeArea()
+        }
+        // 纸外的求助条（决策 67）：盖在纸上面、普通系统样式，你点「知道了」就收起。
+        .overlay(alignment: .bottom) {
+            if model.needsCare { CareSlipView { model.dismissCare() }.padding(16) }
         }
         .accessibilityLabel("日记页")
         .task { await model.loadRecognitionAvailability() }

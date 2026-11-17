@@ -39,6 +39,21 @@ nonisolated enum InteractionSettings {
         Locale.Language(identifier: "en"),
     ]
 
+    /// 成页时等系统识别「认完」（R1，2026-11-17）：每隔 `recognitionPollInterval` 问一次，
+    /// 连续两次是同一段文字才算认完，最多等 `recognitionPatience`。
+    /// **两个数都没有测量依据**：`PKStrokeRecognizer` 的接口没说认完要多久（`updateDrawing` 返回时
+    /// 不保证已经认完），这里先取「人感觉不到的间隔」和「不至于让人觉得卡住的上限」。
+    /// 验证办法：R0 诊断会把每一轮的识别耗时印在纸角，真机上看分布再调。
+    static let recognitionPollInterval: TimeInterval = 0.15
+    static let recognitionPatience: TimeInterval = 1.5
+
+    /// 这一轮手写画成图（计划 R2/R3，照搬原型 snapshot()）：四周留 26 点白边，
+    /// 按「最长边约 1100 像素」放大，放大倍数夹在 1…3 之间（太小的字放大，太大的不缩到看不清）。
+    /// 白底黑字：识别器和模型读的都是这张图。
+    static let snapshotPadding: Double = 26
+    static let snapshotTargetLongestSide: Double = 1100
+    static let snapshotScaleRange: ClosedRange<Double> = 1 ... 3
+
     // MARK: 成页触发（计划 E3c）
 
     /// 「这一页写完了吗」的判断参数。含义与推理写在 `PageCommitTrigger` 的文件头，
@@ -94,11 +109,12 @@ nonisolated enum InteractionSettings {
         // 这个值**没有测量依据**，是从「要有人味但要守规矩」这个目标推的起点，
         // 接上真模型跑过 C1 那 11 段之后应该重新评估。
         temperature: 0.85,
-        // 回应上限 25–40 个汉字（见 C1 的长度硬约束）。中文一个字大致 1–2 个 token，
-        // 留出三倍余量到 200：够它写完，又不至于在它跑题时白烧一大段。
+        // 2026-11-17 起模型按四行回答（读到 / 语气 / 回应 / 关照，计划 R3），「读到」要照抄他写的原文，
+        // 可能有几十个字；回应 12–30 字。中文一个字大致 1–2 个 token，四行合计约 150，留一倍余量到 300：
+        // 够它写完，又不至于在它跑题时白烧一大段。
         // 截断在这里是**兜底不是手段**——真正约束长度的是 system prompt，
         // 因为被 token 上限砍断的是半句话，比长更糟。
-        maxTokens: 200,
+        maxTokens: 300,
         // 20 秒。用户已经等了成页判断的两三秒，再等太久会以为坏了；
         // 而这条链路后面还要花十几秒逐笔写出来，所以请求本身不该是主要的等待。
         timeout: 20,

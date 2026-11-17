@@ -77,7 +77,9 @@ struct HandwritingCanvas: UIViewRepresentable {
         canvas.maximumZoomScale = 1
         canvas.bouncesZoom = false
 
-        canvas.drawing = drawing
+        // 第一次放进来的笔迹是程序给的，不是用户刚写的（见 `Coordinator.applyExternal`）。
+        context.coordinator.applyExternal(drawing, to: canvas)
+        context.coordinator.appliedRevision = drawingRevision
         canvas.drawingPolicy = InteractionSettings.drawingPolicy
         canvas.tool = PKInkingTool(
             .pen,
@@ -119,7 +121,7 @@ struct HandwritingCanvas: UIViewRepresentable {
         // 用 `drawingRevision` 区分这两种情况。
         if context.coordinator.appliedRevision != drawingRevision {
             context.coordinator.appliedRevision = drawingRevision
-            if canvas.drawing != drawing { canvas.drawing = drawing }
+            if canvas.drawing != drawing { context.coordinator.applyExternal(drawing, to: canvas) }
         }
     }
 
@@ -134,8 +136,12 @@ struct HandwritingCanvas: UIViewRepresentable {
     final class Coordinator: NSObject, PKCanvasViewDelegate {
         /// 画布上现在是第几版由模型给的笔迹（见 `updateUIView`）。
         var appliedRevision: Int?
-        /// 笔已经抬起、但这一笔还没交给模型。等 PencilKit 报告笔迹变了再交（见 `canvasViewDidEndUsingTool`）。
-        private var finishPending = false
+        /// 笔正在纸上（落笔到抬笔之间）。这期间笔迹的变化不算「写完一笔」。
+        private var toolInUse = false
+        /// 交给模型的上一份笔迹有几笔。笔迹里真的多出笔画才算写完一笔。
+        private var deliveredStrokeCount = 0
+        /// 正在由程序换掉整份笔迹（喝字、翻页）。这引起的变化不是用户写的。
+        private var applyingExternal = false
         var onStrokeBegan: () -> Void
         var onStrokeFinished: (PKDrawing) -> Void
         var onPencilHoverChanged: (Bool) -> Void
@@ -151,32 +157,39 @@ struct HandwritingCanvas: UIViewRepresentable {
         }
 
         func canvasViewDidBeginUsingTool(_ canvasView: PKCanvasView) {
+            toolInUse = true
             onStrokeBegan()
         }
 
-        /// 用 `canvasViewDidEndUsingTool` 而不是 `canvasViewDrawingDidChange`：
-        /// 后者在一笔的绘制过程中会连续触发，用它做成页判断会把「正在写」
-        /// 误当成「写完一笔」。前者只在笔离开画布时触发一次。
+        /// 「写完一笔」只认一件事：**笔已经抬起，并且笔迹里真的多了笔画**（R1，2026-11-17）。
         ///
-        /// 但抬笔这一刻 `drawing` 里可能还没有这一笔（2026-11-17 实测会吞掉最后一笔），
-        /// 所以只记下「有一笔待交」，等 `canvasViewDrawingDidChange` 报告笔迹真的变了再交；
-        /// 下一轮事件循环兜底一次（什么都没画上的点按，笔迹不会变）。
+        /// 抬笔（`canvasViewDidEndUsingTool`）和笔迹变化（`canvasViewDrawingDidChange`）哪个先到，
+        /// PencilKit 不保证。第一版在抬笔时直接交笔迹，这一笔常常还没并进去（「Test 少了一竖」）；
+        /// 第二版改成「等变化、下一轮事件循环兜底」，可真机上并入比兜底慢时照样少最后一笔，
+        /// 而这正是识别率极低的嫌疑之一。现在两个事件谁先到都只检查同一个条件，不靠时序。
         func canvasViewDidEndUsingTool(_ canvasView: PKCanvasView) {
-            finishPending = true
-            DispatchQueue.main.async { [weak self, weak canvasView] in
-                guard let self, let canvasView else { return }
-                self.deliverFinishedStroke(canvasView.drawing)
-            }
+            toolInUse = false
+            deliverIfNewStrokes(canvasView.drawing)
         }
 
         func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {
-            deliverFinishedStroke(canvasView.drawing)
+            guard !applyingExternal, !toolInUse else { return }
+            deliverIfNewStrokes(canvasView.drawing)
         }
 
-        private func deliverFinishedStroke(_ drawing: PKDrawing) {
-            guard finishPending else { return }   // 正在写的过程中也会触发，那时不算写完一笔
-            finishPending = false
+        private func deliverIfNewStrokes(_ drawing: PKDrawing) {
+            guard drawing.strokes.count > deliveredStrokeCount else { return }
+            deliveredStrokeCount = drawing.strokes.count
             onStrokeFinished(drawing)
+        }
+
+        /// 程序换掉整份笔迹（喝字、翻页）。换的过程中触发的变化不算用户写的，
+        /// 笔数基准也跟着换成新笔迹的笔数。
+        func applyExternal(_ drawing: PKDrawing, to canvas: PKCanvasView) {
+            applyingExternal = true
+            canvas.drawing = drawing
+            applyingExternal = false
+            deliveredStrokeCount = drawing.strokes.count
         }
 
         /// 悬停手势的状态变化。

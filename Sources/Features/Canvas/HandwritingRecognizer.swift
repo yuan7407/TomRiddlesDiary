@@ -124,6 +124,33 @@ private actor SystemRecognizerCache {
 
     private var byLanguages: [String: PKStrokeRecognizer] = [:]
 
+    /// 上一次识别。所有识别排队执行（R1，2026-11-17）：识别器只有一个，几次「换笔迹 → 取文字」
+    /// 交错着跑，取到的可能是别人那份笔迹的结果。
+    private var tail: Task<String?, Never>?
+
+    /// 排队识别一份笔迹。`patient` 为真时等结果稳定（见 `InteractionSettings.recognitionPatience`），
+    /// 否则取一次就走（写字过程中的那种，只为了看有没有写句号）。
+    func recognize(_ drawing: PKDrawing, languages: [Locale.Language], patient: Bool) async -> String? {
+        let recognizer = recognizer(for: languages)
+        let previous = tail
+        let work = Task<String?, Never> {
+            _ = await previous?.value
+            await recognizer.updateDrawing(drawing)
+            guard patient else { return await recognizer.recognizedText() }
+            var last: String?
+            let deadline = ContinuousClock.now + .seconds(InteractionSettings.recognitionPatience)
+            while ContinuousClock.now < deadline {
+                let now = await recognizer.recognizedText()
+                if let now, !now.isEmpty, now == last { return now }
+                last = now
+                try? await Task.sleep(for: .seconds(InteractionSettings.recognitionPollInterval))
+            }
+            return last
+        }
+        tail = work
+        return await work.value
+    }
+
     func recognizer(for languages: [Locale.Language]) -> PKStrokeRecognizer {
         let key = languages.map(\.minimalIdentifier).joined(separator: "|")
         if let existing = byLanguages[key] { return existing }
@@ -147,7 +174,15 @@ private actor SystemRecognizerCache {
 /// 那是环境，不是我们能在测试里控制的。
 nonisolated protocol HandwritingReading: Sendable {
     func recognize(_ drawing: PKDrawing) async -> HandwritingRecognition
+    /// 成页时的识别：可以多等一会儿，换来认完的结果。默认就是 `recognize`。
+    func recognizeCarefully(_ drawing: PKDrawing) async -> HandwritingRecognition
     func availability() async -> RecognitionAvailability
+}
+
+extension HandwritingReading {
+    func recognizeCarefully(_ drawing: PKDrawing) async -> HandwritingRecognition {
+        await recognize(drawing)
+    }
 }
 
 nonisolated struct HandwritingRecognizer: HandwritingReading, Sendable {
@@ -174,6 +209,15 @@ nonisolated struct HandwritingRecognizer: HandwritingReading, Sendable {
     /// - Parameter drawing: 用户在这一页写下的全部笔画。
     /// - Returns: 识别结果，附带能力状况——调用方必须区分「系统太旧」「没有模型」「认不出」。
     func recognize(_ drawing: PKDrawing) async -> HandwritingRecognition {
+        await recognize(drawing, patient: false)
+    }
+
+    /// 成页时用：等系统认完再取（R1）。写字过程中的识别用不着等。
+    func recognizeCarefully(_ drawing: PKDrawing) async -> HandwritingRecognition {
+        await recognize(drawing, patient: true)
+    }
+
+    private func recognize(_ drawing: PKDrawing, patient: Bool) async -> HandwritingRecognition {
         guard #available(iOS 27, *) else {
             return HandwritingRecognition(
                 text: nil,
@@ -192,8 +236,7 @@ nonisolated struct HandwritingRecognizer: HandwritingReading, Sendable {
             return HandwritingRecognition(text: nil, availability: availability)
         }
 
-        await recognizer.updateDrawing(drawing)
-        let text = await recognizer.recognizedText()
+        let text = await SystemRecognizerCache.shared.recognize(drawing, languages: requestedLanguages, patient: patient)
         return HandwritingRecognition(text: text, availability: availability)
     }
 

@@ -63,8 +63,7 @@ struct DrinkingInkView: View {
             // 喝完就停：之后只剩静态的压痕，不用再每帧画。
             let interval = Duration.seconds(1.0 / 60)
             while !Task.isCancelled {
-                let now = (ContinuousClock.now - ink.since)
-                let seconds = Double(now.components.seconds) + Double(now.components.attoseconds) / 1e18
+                let seconds = (ContinuousClock.now - ink.since).inSeconds
                 elapsed = seconds
                 if seconds >= BookFeel.Drink.duration { break }
                 try? await Task.sleep(for: interval)

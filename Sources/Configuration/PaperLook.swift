@@ -139,6 +139,12 @@ nonisolated enum PaperLook {
         static let notice = Style(size: 12.5, tracking: 1.5, alpha: 0.62, semibold: false)
         /// 开场那道线下面的「在这一页上手写。停笔，他会读。」（原型 size 12、字距 2.5、0.5）。
         static let openingHint = Style(size: 12, tracking: 2.5, alpha: 0.5, semibold: false)
+        /// 他那页页脚的「他读到的是：「…」」（计划 R3/P9，原型 size 11、字距 1、0.5）：
+        /// 离书口 46（左页）或折缝 12（右页），基线离下边 54；原文超过 20 个字就截断加省略号。
+        static let heard = Style(size: 11, tracking: 1, alpha: 0.5, semibold: false)
+        static let heardInsetFromFold: Double = 12
+        static let heardBaselineFromBottom: Double = 54
+        static let heardMaxCharacters = 20
 
         /// 页眉、页码离纸边多远（原型单位）。离书口 46；日期基线离上边 44；页码基线离下边 30。
         static let outerMargin: Double = 46
@@ -148,6 +154,22 @@ nonisolated enum PaperLook {
         /// 「读不出哪种文字」，计划 E4b），所以这个数不是照搬的：取日期字号的约两倍，让中间空出一行，
         /// 2026-11-17 在 Duo 模拟器截图上目测定的。
         static let noticeGapBelowDate: Double = 22
+    }
+
+    // MARK: 纸外的求助条（决策 67，原型 .slip）
+
+    /// 他觉得你需要真人的帮助时（「关照：是」），在纸的外面弹出一块普通的系统界面——
+    /// 故意不做成纸、不用印刷体，一眼看得出不属于这本日记。颜色照原型 --slip / --slip-ink / --slip-rule。
+    enum CareSlip {
+        static let background = PaperTint(243, 244, 242)
+        static let ink = PaperTint(28, 31, 29)
+        static let rule = PaperTint(185, 189, 185)
+        /// 文案照原型。号码是给真人打的，不进他的嘴（决策 67）。
+        static let text = "这段话不是日记写的。如果你现在很难受，可以找真人说话：中国大陆心理援助热线 12356；有危险时拨 120。"
+        static let dismiss = "知道了"
+        static let cornerRadius: Double = 12
+        static let padding: Double = 14
+        static let maxWidth: Double = 620
     }
 
     // MARK: 书脊阴影（原型 drawGutter(depth)）

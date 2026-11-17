@@ -115,6 +115,21 @@ nonisolated enum SoulSystemPrompt {
       你可以因此说一句「你写得很急」或者「中间你停了很久」，但不要复述那些数字，也不必每次都提。
     """
 
+    /// 读图与回答格式（计划 R3，照搬网页原型 RULES 的读图与输出部分）。和人设无关，永远追加：
+    /// `ReadingReply` 按这四行解析，格式一变就解析不出来。
+    static let readingProtocol = """
+
+    ————
+    他的话是手写在纸上的。请求里常附一张图：那就是他刚写的字（中文或英文，可能潦草，可能只有几个字）。
+    · 先认出他写了什么，以图为准。手机自己认的字常认错，只作参考。
+    · 认不出就老实说看不清，请他写大一点再写一遍，不要猜着答。
+    · 严格按下面四行输出，不要别的：
+    读到：<照抄你认出的原文；认不出写 看不清>
+    语气：<从 静、轻、重、暖 里选一个字，按他这句话的分量选>
+    回应：<你写在纸上的话>
+    关照：<他写了想伤害自己、活不下去的意思时写 是，否则写 否>
+    """
+
     static func compose(_ persona: SoulPersona) -> String {
         """
         你的名字是\(persona.displayName)。
@@ -123,6 +138,7 @@ nonisolated enum SoulSystemPrompt {
 
         语气：\(persona.style.tone)
         \(renderingConstraints)
+        \(readingProtocol)
         """
     }
 }

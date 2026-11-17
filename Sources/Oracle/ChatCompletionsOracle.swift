@@ -77,16 +77,22 @@ nonisolated struct ChatCompletionsOracle: OracleProvider {
 
     func respond(to request: OracleRequest) async throws -> OracleReply {
         let trimmed = request.text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { throw OracleFailure.nothingToSay }
+        // 有图时手机没认出字也照样问：图才是他写的东西（计划 R3）。没图又没字，才是真的无话可说。
+        guard !trimmed.isEmpty || request.handwriting != nil else { throw OracleFailure.nothingToSay }
 
         // 试一次，泄漏身份就再试一次。**不改写模型的话**，理由见文件头。
         // 只重试一次而不是反复重试：如果 prompt 真的没管住它，重试十次也没用，
         // 而每次重试都要花钱、花时间，还要把内容再发一遍。
         for attempt in 0 ... 1 {
-            // 发出去的是「他写的字 + 下笔的样子」；判断有没有话可说、身份有没有泄漏，看的仍然只是他写的字和模型的回话。
-            let text = try await askOnce(request.userContent(text: trimmed), isRetry: attempt > 0)
-            guard let leak = OracleIdentityGuard.leakedName(in: text) else {
-                return OracleReply(text: text)
+            // 发出去的是「图 + 手机认的字 + 下笔的样子」；身份有没有泄漏，只看要写上纸的那句回应。
+            let raw = try await askOnce(request.userContent(text: trimmed), image: request.handwriting, isRetry: attempt > 0)
+            let reading = ReadingReply.parse(raw)
+            #if DEBUG
+            if !reading.followedFormat { print("── 魂 ── 模型没按四行格式回，整段当作回应") }
+            #endif
+            guard !reading.said.isEmpty else { throw OracleFailure.couldNotReach(detail: "回应是空的") }
+            guard let leak = OracleIdentityGuard.leakedName(in: reading.said) else {
+                return OracleReply(text: reading.said, heard: reading.heard, mood: reading.mood, needsCare: reading.needsCare)
             }
             if attempt == 1 {
                 throw OracleFailure.brokeCharacter(leaked: leak)
@@ -98,7 +104,7 @@ nonisolated struct ChatCompletionsOracle: OracleProvider {
 
     // MARK: 内部
 
-    private func askOnce(_ text: String, isRetry: Bool) async throws -> String {
+    private func askOnce(_ text: String, image: Data?, isRetry: Bool) async throws -> String {
         guard let url = endpoint.chatURL else {
             throw OracleFailure.couldNotReach(detail: "端点配置拼不出合法地址")
         }
@@ -107,7 +113,7 @@ nonisolated struct ChatCompletionsOracle: OracleProvider {
         httpRequest.httpMethod = "POST"
         httpRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
         httpRequest.setValue("Bearer \(endpoint.apiKey)", forHTTPHeaderField: "Authorization")
-        httpRequest.httpBody = try body(for: text, isRetry: isRetry)
+        httpRequest.httpBody = try body(for: text, image: image, isRetry: isRetry)
 
         let (data, response) = try await transport.send(httpRequest)
 
@@ -122,10 +128,21 @@ nonisolated struct ChatCompletionsOracle: OracleProvider {
         return try Self.firstMessage(from: data)
     }
 
-    private func body(for text: String, isRetry: Bool) throws -> Data {
-        var messages: [[String: String]] = [
+    /// 请求体。有图时用户消息是 OpenAI 兼容的内容块数组：一段文字 + 一张 base64 内嵌的 PNG
+    /// （DeepSeek 的 Chat Completions 接受这种格式，2026-11-17 用合成测试图真实请求确认，见 MEMORY）。
+    func body(for text: String, image: Data?, isRetry: Bool) throws -> Data {
+        let userContent: Any
+        if let image {
+            userContent = [
+                ["type": "text", "text": text],
+                ["type": "image_url", "image_url": ["url": "data:image/png;base64," + image.base64EncodedString()]],
+            ]
+        } else {
+            userContent = text
+        }
+        var messages: [[String: Any]] = [
             ["role": "system", "content": systemPrompt],
-            ["role": "user", "content": text],
+            ["role": "user", "content": userContent],
         ]
         // 重试时额外提醒一句。不改 system prompt——那样两次请求就不是同一个实验了。
         if isRetry {
