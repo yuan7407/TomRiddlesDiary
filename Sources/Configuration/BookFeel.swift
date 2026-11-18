@@ -108,18 +108,9 @@ nonisolated enum BookFeel {
 
     // MARK: 你下笔的样子
 
-    /// 怎样算写得快、写得慢，怎样算一条线、一个圈、乱划。
-    ///
-    /// 快慢与停顿（2026-11-18 按真机重定）：原来取魂自己书写速度（7.5 字高/秒）的一半当「慢」，
-    /// 用户在 Duo 外屏用手指正常写三整句英文，量出来是 3.4、3.3、2.8 字高/秒（字高按魂的 54.3 点），
-    /// 全被算成「写得很慢」，他于是每一轮都在说你写得慢。现在以这三轮为常态：
-    /// 慢 = 不到最慢那轮的一半（1.4），快 = 超过最快那轮的两倍（6.8）。
-    /// 停顿 2.5 秒照网页原型（原来 1.8 秒，手指写英文词与词之间常停一两秒）。
-    /// **只有一个人、三轮、手指、英文的样本**；中文、Apple Pencil 的速度分布量到之后再定。
+    /// 怎样算只点了一下、一个圈（`WritingManner`，2026-11-18 收窄成只看「写没写字」）。
+    /// 原来还有快慢与停顿的门槛，随着「写了字就不告诉他怎么写的」一起删了。
     static let writingManner = WritingMannerThresholds(
-        fastAboveGlyphHeightsPerSecond: 6.8,
-        slowBelowGlyphHeightsPerSecond: 1.4,
-        pauseWorthMentioning: 2.5,
         tapBelowGlyphHeights: 0.4,
         loopAboveGlyphHeights: 2.6
     )

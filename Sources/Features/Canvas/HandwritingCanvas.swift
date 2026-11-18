@@ -70,6 +70,8 @@ struct HandwritingCanvas: UIViewRepresentable {
         // 透明：纸在下面一层（`PaperBackground`），见文件头。
         canvas.backgroundColor = .clear
         canvas.isOpaque = false
+        // PencilKit 会按界面明暗反转墨色（深色模式下黑墨变浅灰）。墨是写在纸上的，纸不随系统变暗。
+        canvas.overrideUserInterfaceStyle = .light
 
         // 一页就是一页：不滚动不缩放，画布坐标即页面坐标。
         canvas.isScrollEnabled = false

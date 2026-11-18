@@ -5,7 +5,7 @@
 //  为什么这样测：
 //  - 形状判别（点一下 / 一条线 / 一个圈 / 乱划 / 写字）每一类给一个最典型的例子。
 //    判错的后果是魂对着一道线说「你写了很多」，所以每一类都要钉住。
-//  - 发给模型的那句话必须只含那五个概括量：不许出现坐标，否则就是多发了数据。
+//  - 写了字就什么都不发（2026-11-18 收窄：他拿到快慢就去评论你的字）；没写字才发，而且只发形状，不许出现坐标。
 //  - 没有 `manner` 时，请求体必须和原来一字不差（现有调用处和测试都没传它）。
 //
 
@@ -14,9 +14,6 @@ import XCTest
 
 nonisolated final class WritingMannerTests: XCTestCase {
     private let thresholds = WritingMannerThresholds(
-        fastAboveGlyphHeightsPerSecond: 15,
-        slowBelowGlyphHeightsPerSecond: 3.75,
-        pauseWorthMentioning: 1.8,
         tapBelowGlyphHeights: 0.4,
         loopAboveGlyphHeights: 2.6
     )
@@ -56,7 +53,6 @@ nonisolated final class WritingMannerTests: XCTestCase {
     func testATapIsATap() {
         let manner = observe([trace([(10, 10), (11, 11)], startingAt: 0, seconds: 0.05)])
         XCTAssertEqual(manner?.shape, .tap)
-        XCTAssertEqual(manner?.strokeCount, 1)
     }
 
     func testOneStraightStrokeIsALine() {
@@ -84,34 +80,12 @@ nonisolated final class WritingMannerTests: XCTestCase {
         }
         let manner = observe(strokes)
         XCTAssertEqual(manner?.shape, .writing)
-        XCTAssertEqual(manner?.strokeCount, 6)
-        XCTAssertEqual(manner?.seconds ?? 0, 2.7, accuracy: 1e-9)
     }
 
-    func testPaceIsJudgedAgainstTheSoulsGlyphHeight() {
-        let long: [(Double, Double)] = [(0, 0), (400, 0), (400, 30), (0, 30)]
-        XCTAssertEqual(observe([trace(long, startingAt: 0, seconds: 0.5), trace(long, startingAt: 1, seconds: 0.5)])?.pace, .fast)
-        XCTAssertEqual(observe([trace(long, startingAt: 0, seconds: 3), trace(long, startingAt: 4, seconds: 3)])?.pace, .steady)
-        XCTAssertEqual(observe([trace(long, startingAt: 0, seconds: 9), trace(long, startingAt: 10, seconds: 9)])?.pace, .slow)
-    }
-
-    func testLongestPauseIsMeasuredBetweenLiftAndNextTouch() throws {
-        let first = trace([(0, 0), (20, 20)], startingAt: 0, seconds: 0.5)
-        let second = trace([(30, 0), (50, 20)], startingAt: 3.5, seconds: 0.5)
-        let third = trace([(60, 0), (80, 20)], startingAt: 4.3, seconds: 0.5)
-        let manner = try XCTUnwrap(observe([first, second, third]))
-        XCTAssertEqual(manner.longestPause, 3.0, accuracy: 1e-9)
-        XCTAssertTrue(manner.pauseIsWorthMentioning)
-        XCTAssertTrue(manner.sentenceForSoul.contains("停了 3.0 秒"))
-    }
-
-    func testTheSentenceCarriesOnlyTheSummary() throws {
-        let manner = try XCTUnwrap(observe([trace([(123.456, 654.321), (140, 660)], startingAt: 0, seconds: 0.3)]))
-        let sentence = manner.sentenceForSoul
-        XCTAssertTrue(sentence.hasPrefix("（他下笔的样子："))
-        XCTAssertFalse(sentence.contains("123"), "坐标不许出现在发给模型的话里")
-        XCTAssertFalse(sentence.contains("654"))
-        XCTAssertFalse(sentence.contains("停了"), "不值得说的停顿就不说")
+    func testTheSentenceCarriesOnlyTheShape() throws {
+        let manner = try XCTUnwrap(observe([trace([(123.456, 654.321), (124, 655)], startingAt: 0, seconds: 0.3)]))
+        XCTAssertEqual(manner.shape, .tap)
+        XCTAssertEqual(manner.sentenceForSoul, "（他下笔的样子：没有写字，只是在纸上点了一下。）")
     }
 
     // MARK: 随请求发出去
@@ -120,28 +94,17 @@ nonisolated final class WritingMannerTests: XCTestCase {
         XCTAssertEqual(OracleRequest(text: "x", strokeCount: 1).userContent(text: "今天有点累。"), "今天有点累。")
     }
 
-    func testRequestWithMannerAppendsItOnItsOwnLine() throws {
-        let manner = try XCTUnwrap(observe([trace([(0, 0), (20, 20)], startingAt: 0, seconds: 0.5), trace([(30, 0), (50, 20)], startingAt: 1, seconds: 0.5)]))
-        let content = OracleRequest(text: "x", strokeCount: 2, manner: manner).userContent(text: "今天有点累。")
-        XCTAssertEqual(content, "今天有点累。\n" + manner.sentenceForSoul)
+    /// 没写字时那一行跟在后面。
+    func testRequestWithAGestureAppendsItOnItsOwnLine() {
+        let line = WritingManner(shape: .line)
+        XCTAssertEqual(OracleRequest(text: "x", strokeCount: 1, manner: line).userContent(text: "一"), "一\n" + line.sentenceForSoul)
     }
 
-    /// 2026-11-18 真机：平常的一轮也发「写得很慢」，他每一轮都谈速度。平常的一轮不发。
-    func testOrdinaryWritingIsNotMentioned() {
-        let ordinary = WritingManner(strokeCount: 40, seconds: 15, pace: .steady, longestPause: 1, shape: .writing, pauseIsWorthMentioning: false)
-        XCTAssertFalse(ordinary.isWorthMentioning)
-        XCTAssertEqual(OracleRequest(text: "x", strokeCount: 40, manner: ordinary).userContent(text: "You are stupid."), "You are stupid.\n" + WrittenLanguage.englishOnlyNote)
-        let paused = WritingManner(strokeCount: 40, seconds: 15, pace: .steady, longestPause: 4, shape: .writing, pauseIsWorthMentioning: true)
-        XCTAssertTrue(paused.isWorthMentioning)
-    }
-
-    /// 真机三轮手指正常写英文：3.4、3.3、2.8 字高/秒，不该算慢也不该算快。
-    func testShippedThresholdsCallNormalFingerWritingSteady() {
-        let t = BookFeel.writingManner
-        for speed in [3.4, 3.3, 2.8] {
-            XCTAssertGreaterThan(speed, t.slowBelowGlyphHeightsPerSecond)
-            XCTAssertLessThan(speed, t.fastAboveGlyphHeightsPerSecond)
-        }
+    /// 2026-11-18 真机：他拿到「写得很慢」「写得重」就去评论你的字。写了字就什么都不发。
+    func testWritingIsNeverDescribedToHim() {
+        let writing = WritingManner(shape: .writing)
+        XCTAssertFalse(writing.isWorthMentioning)
+        XCTAssertEqual(OracleRequest(text: "x", strokeCount: 40, manner: writing).userContent(text: "你好"), "你好")
     }
 
     /// 记得的东西在最前面：称呼、记得的事、最近几轮（旧的在前）、这一次的开场白，然后才是这一句。

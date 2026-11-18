@@ -85,6 +85,9 @@ nonisolated final class SoulPersonaTests: XCTestCase {
         let persona = try SoulPersonaLoader.decode(data)
         XCTAssertFalse(persona.displayName.isEmpty)
         XCTAssertFalse(persona.systemPrompt.isEmpty)
+        // 2026-11-18 用户：人设要让他一直写下去，不给他停下的理由；也不评论他的字。
+        XCTAssertTrue(persona.systemPrompt.contains("绝不说「不说也行」"))
+        XCTAssertTrue(persona.systemPrompt.contains("不评论他的字"))
     }
 
     // MARK: system prompt 组装
@@ -112,8 +115,7 @@ nonisolated final class SoulPersonaTests: XCTestCase {
     func testPromptExplainsTheWritingMannerLine() throws {
         let prompt = SoulSystemPrompt.compose(try SoulPersonaLoader.decode(personaJSON()))
         XCTAssertTrue(prompt.contains("他下笔的样子"))
-        XCTAssertTrue(prompt.contains("不复述数字"))
-        XCTAssertTrue(prompt.contains("他在骂你"), "他冲你来时要回应那件事，不谈下笔的样子（2026-11-18 真机）")
+        XCTAssertTrue(prompt.contains("不评论他的字迹"), "2026-11-18 真机：「写这么重」「这句更乱」出戏")
     }
 
     /// 两个不同的人设组出来的 prompt 必须不同——人设文件真的在起作用，而不是被渲染约束淹没。

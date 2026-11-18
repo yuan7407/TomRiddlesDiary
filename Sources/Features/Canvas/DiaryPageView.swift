@@ -184,12 +184,12 @@ struct DiaryPageView: View {
                 // 可书写区域由这里算（页边距是视图尺寸的函数，模型不认识视图）。
                 // 没有它魂定不了落点，所以一有尺寸就要报过去。
                 .animation(pageTurn, value: model.pageTurnCount)
-                .onAppear { reportPageArea(geometry.size, insets: insets) }
+                .onAppear { reportPageArea(geometry.size, insets: insets, safeTop: screen.safeAreaInsets.top) }
                 .onChange(of: geometry.size) { _, new in
-                    reportPageArea(new, insets: pageInsets(new, safe: screen.safeAreaInsets))
+                    reportPageArea(new, insets: pageInsets(new, safe: screen.safeAreaInsets), safeTop: screen.safeAreaInsets.top)
                 }
                 .onChange(of: screen.safeAreaInsets) { _, newSafe in
-                    reportPageArea(geometry.size, insets: pageInsets(geometry.size, safe: newSafe))
+                    reportPageArea(geometry.size, insets: pageInsets(geometry.size, safe: newSafe), safeTop: newSafe.top)
                 }
                 // 合页与折缝（计划 P1）：折缝同时交给书脊阴影（上面的 `PaperBackground`）
                 // 和占用图（回应不跨书脊）。姿态怎么改变成页是 P7 的事，这里只用它分辨内外屏。
@@ -284,16 +284,20 @@ struct DiaryPageView: View {
         return confined
     }
 
-    private func reportPageArea(_ size: CGSize, insets: EdgeInsets) {
+    /// 报给模型的「他能写字的区域」：页边距以内，并且从页眉日期下面开始——
+    /// 2026-11-18 真机外屏，他的开场白「你来了。」写在了日期上面。你自己写字不受这个限制（画布是整张纸）。
+    private func reportPageArea(_ size: CGSize, insets: EdgeInsets, safeTop: Double) {
         guard size.width > 0, size.height > 0 else { return }
         let glyph = HandwritingFeel.referenceGlyphHeightInPoints
+        let p = PaperLook.Printed.self
+        let top = max(insets.top, safeTop + (p.dateBaselineFromTop + p.noticeGapBelowDate) * PaperLook.pointsPerPrototypeUnit)
         model.pageAreaChanged(PageRegion(
             left: insets.leading,
-            top: insets.top,
+            top: top,
             // 夹一个字高的下界：比一个字还窄的可书写区域没有意义，
             // 而 PageRegion 不接受负宽高。
             width: max(glyph, size.width - insets.leading - insets.trailing),
-            height: max(glyph, size.height - insets.top - insets.bottom)
+            height: max(glyph, size.height - top - insets.bottom)
         ))
     }
 

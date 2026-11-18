@@ -5,7 +5,8 @@
 //  文件职责：封面书口那一侧（右边）上下两只做旧的黄铜护角（计划 S2，决策 83）。
 //
 //  形状照参考图描的：两条边沿着书边伸出去，末端一个小圆耳，里侧一道内凹的弧收到对角线上的一个尖；
-//  靠外角一簇四个圆点、每条边上一个菱形孔、对角线上再一个；表面錾了两颗星。
+//  靠外角一簇四个圆点、每条边上一个菱形孔、对角线上再一个。
+//  参考图上还有两颗錾刻的星，2026-11-18 删了：画出来像两个可以按的图标，用户真去按了。
 //  形状以「护角一条边长 = 1」的单位正方形描述，外角在 (1, 0)，关于对角线对称——只描一半，另一半镜像出来，
 //  两边永远一样。下边那只是同一个形状上下翻转。
 //
@@ -39,10 +40,6 @@ struct BrassCorner: View {
             // 包住书边的那一道翻边：沿外侧两条边的一线亮光。
             CornerLip(flipVertical: flip)
                 .stroke(c.polished.color.opacity(0.7), lineWidth: 1.2)
-
-            // 錾刻的星：一道暗线，下面错开一道亮线（刻痕的另一壁被光照到）。
-            CornerStars(flipVertical: flip).stroke(c.shadow.color.opacity(0.75), lineWidth: 0.7)
-            CornerStars(flipVertical: flip).stroke(c.polished.color.opacity(0.35), lineWidth: 0.6).offset(x: 0.6, y: 0.6)
 
             // 圆点与菱形孔：凹下去、露出底下的暗色。
             CornerHoles(flipVertical: flip)
@@ -135,26 +132,6 @@ nonisolated private struct CornerHoles: Shape {
             path.addLine(to: at(CGPoint(x: center.x, y: center.y - ay)))
             path.addLine(to: at(CGPoint(x: center.x + ax, y: center.y)))
             path.addLine(to: at(CGPoint(x: center.x, y: center.y + ay)))
-            path.closeSubpath()
-        }
-        return path
-    }
-}
-
-/// 錾刻的两颗五角星（对称地各在一条臂上）。
-nonisolated private struct CornerStars: Shape {
-    let flipVertical: Bool
-    func path(in rect: CGRect) -> Path {
-        func at(_ p: CGPoint) -> CGPoint { CornerGeometry.place(p, in: rect, flip: flipVertical) }
-        var path = Path()
-        for center in [CGPoint(x: 0.55, y: 0.15), CornerGeometry.mirror(CGPoint(x: 0.55, y: 0.15))] {
-            // 五角星：外顶点与内顶点交替，外半径 0.06、内半径 0.025（单位正方形）。从正上方起。
-            for k in 0 ..< 10 {
-                let r = k.isMultiple(of: 2) ? 0.06 : 0.025
-                let angle = -Double.pi / 2 + Double(k) * Double.pi / 5
-                let p = at(CGPoint(x: center.x + r * cos(angle), y: center.y + r * sin(angle)))
-                if k == 0 { path.move(to: p) } else { path.addLine(to: p) }
-            }
             path.closeSubpath()
         }
         return path

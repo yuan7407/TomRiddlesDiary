@@ -209,7 +209,9 @@ nonisolated struct ReplyComposer: Sendable {
         var random = SeededRandomNumberGenerator(seed: seed &+ 5)
         let x = column.left + Double.random(in: 0 ..< 1, using: &random) * SoulHand.startJitter * unit
         let width = column.right - x
-        let base = Self.baseGlyphSize(characterCount: text.filter { !$0.isWhitespace }.count) * unit
+        // 字号按字数定（原型 sizeFor），栏比原型的窄就按比例缩小（外屏，见 `SoulHand.prototypeLineWidth`）。
+        let narrower = min(1, column.width / (SoulHand.prototypeLineWidth * unit))
+        let base = Self.baseGlyphSize(characterCount: text.filter { !$0.isWhitespace }.count) * unit * narrower
         let hand = Self.hand(seed: seed)
 
         // 同一句话试五个字号，挑代价最低的（原型：行数 × 3 + 坏断行 × 4 + 缩小 × 12，太高再 + 100）。

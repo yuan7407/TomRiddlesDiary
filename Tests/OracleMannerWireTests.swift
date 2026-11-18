@@ -47,9 +47,7 @@ nonisolated final class OracleMannerWireTests: XCTestCase {
         return try XCTUnwrap(messages.first { $0["role"] == "user" }?["content"])
     }
 
-    private let manner = WritingManner(
-        strokeCount: 12, seconds: 8.4, pace: .fast, longestPause: 3.2, shape: .writing, pauseIsWorthMentioning: true
-    )
+    private let manner = WritingManner(shape: .loop)
 
     func testWithoutMannerTheUserMessageIsOnlyTheWords() async throws {
         let transport = RecordingTransport()
@@ -63,7 +61,7 @@ nonisolated final class OracleMannerWireTests: XCTestCase {
         _ = try await makeOracle(transport).respond(to: OracleRequest(text: "今天有点累。", strokeCount: 12, manner: manner))
         let bodies = await transport.sentBodies
         let message = try userMessage(in: try XCTUnwrap(bodies.first))
-        XCTAssertEqual(message, "今天有点累。\n（他下笔的样子：共 12 笔，前后 8.4 秒，写得很快，中间最长停了 3.2 秒；像是在写字。）")
+        XCTAssertEqual(message, "今天有点累。\n（他下笔的样子：没有写字，画了一个首尾相接的圈。）")
     }
 
     func testEmptyWritingStillHasNothingToSayEvenWithAManner() async {

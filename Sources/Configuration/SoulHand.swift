@@ -42,6 +42,9 @@ nonisolated enum SoulHand {
     /// `(最多几个字, 字号)`，超过最后一档用 `smallestSize`。
     static let sizeSteps: [(maxCharacters: Int, size: Double)] = [(6, 56), (12, 48), (20, 42), (30, 37), (42, 33)]
     static let smallestSize: Double = 29
+    /// 上面这些字号是按原型一栏的行宽（347 原型单位）定的。栏更窄时（外屏一页约 300 点）字号按比例缩小，
+    /// 栏更宽时不放大（2026-11-18 真机：外屏上照搬内屏的字号，开场白两句就占了半页，用户「中文怎么写那么大」）。
+    static let prototypeLineWidth: Double = 347
     /// 同一句话在这五个比例里各排一次，挑代价最低的：宁可字小一点，也不把一个词拆在两行。
     static let sizeTrials: [Double] = [1, 0.94, 0.88, 0.8, 0.7]
     /// 代价 = 行数 × 3 + 坏断行 × 4 + (1 − 比例) × 12；排出来比可用高度还高再 + 100。
@@ -91,8 +94,9 @@ nonisolated enum SoulHand {
         /// 系统说的话，不进人设。
         static let hintText = "在这一页上手写。停笔，他会读。"
         /// 外屏只有一页时（计划 S6）：线画在他那两句下面隔多远（原型单位），线最长占页宽的多少。
-        /// 原型没有单页的版式，这两个数是在外屏上看着定的，未经真机验证。
-        static let singlePageLineBelowText: Double = 70
+        /// 原型没有单页的版式。隔 150（约 160 点）是给你写称呼留的地方：2026-11-18 真机上用手指写「我叫Tom」
+        /// 一行就有一百来点高，原来隔 70 时字压到了线上（用户「留给人写自己称呼的地方又太小了」）。
+        static let singlePageLineBelowText: Double = 150
         static let singlePageLineShare: Double = 0.7
     }
 }

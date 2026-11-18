@@ -23,6 +23,9 @@ struct TomRiddlesDiaryApp: App {
     var body: some Scene {
         WindowGroup {
             DiaryPageView()
+                // 纸永远是白天的纸：手机开着深色模式时，PencilKit 会把黑墨水反转成浅灰（2026-11-18 真机
+                // 「写字是浅灰色的」），整本书也不该跟着系统变暗。
+                .preferredColorScheme(.light)
         }
     }
 }

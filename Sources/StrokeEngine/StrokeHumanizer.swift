@@ -109,6 +109,12 @@ nonisolated struct StrokeHumanizer: Sendable {
     /// 这是数值稳定性阈值，不是手感参数。
     private static let coincidentPointTolerance: Double = 1e-9
 
+    /// 一串点的平均位置（取中点是比例运算，不是经验值）。
+    private static func midpoint(of points: [Point2D]) -> Point2D {
+        let count = Double(points.count)
+        return Point2D(x: points.reduce(0) { $0 + $1.x } / count, y: points.reduce(0) { $0 + $1.y } / count)
+    }
+
     /// 手绘化一组有序笔画。
     /// - Note: 所有笔画共用同一个随机流，因此笔与笔之间的差异也可复现；
     ///         不要改成每笔重置种子，否则每笔抖动会呈现相同的规律。
@@ -181,7 +187,14 @@ nonisolated struct StrokeHumanizer: Sendable {
         configuration: HumanizerConfiguration,
         random: inout SeededRandomNumberGenerator
     ) -> TimedStroke? {
-        let points = resample(polyline.points, spacing: configuration.sampleSpacing)
+        // 比一个采样间距还短的笔（「？」下面那个点只有约 0.02 字高）按一个点画：
+        // 当成线的话两端各收一次笔，接触从 0 到 0，整笔宽度是 0，点就消失了（2026-11-18 真机「问号的点总是消失」）。
+        // 收成一个采样点，`StrokeGrowth` 就把它当点画。判据是采样间距本身，不是另取的经验值：
+        // 短于它的笔本来就采不出第二个点。
+        let tooShortForALine = polyline.length < configuration.sampleSpacing
+        let points = tooShortForALine
+            ? polyline.points.isEmpty ? [] : [Self.midpoint(of: polyline.points)]
+            : resample(polyline.points, spacing: configuration.sampleSpacing)
         guard !points.isEmpty else { return nil }
 
         // 抖动先整笔算好再逐点用：它是沿弧长的一条连续曲线，不能在逐点循环里
