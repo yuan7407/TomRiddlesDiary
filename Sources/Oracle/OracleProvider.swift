@@ -81,6 +81,8 @@ nonisolated struct OracleRequest: Equatable, Sendable {
         } else {
             lines = [trimmed]
         }
+        // 手机认出来是纯英文：明说一句。只靠 system prompt 那条规则，真机上他照样用中文回（2026-11-18）。
+        if WrittenLanguage.of(trimmed) == .english { lines.append(WrittenLanguage.englishOnlyNote) }
         if let manner { lines.append(manner.sentenceForSoul) }
         return lines.joined(separator: "\n")
     }
@@ -90,8 +92,8 @@ nonisolated struct OracleRequest: Equatable, Sendable {
 nonisolated struct OracleReply: Equatable, Sendable {
     /// 要写在纸上的文字。
     ///
-    /// 长度是有代价的：回应是**一笔一笔写出来**的，按当前配置约 1.5 字/秒，
-    /// 30 字就要写 20 秒。所以 system prompt 必须约束长度——
+    /// 长度是有代价的：回应是**一笔一笔写出来**的，按 2026-11-18 的配置约 1.6 字/秒，
+    /// 30 字就要写约 19 秒。所以 system prompt 必须约束长度——
     /// 这不是文风偏好，是功能要求（详见仓库根的 `C1-response-quality-set.md`）。
     /// 这一层不截断：截断会把一句话砍成半截，比长更糟。约束长度是 prompt 的责任。
     let text: String

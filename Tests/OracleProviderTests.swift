@@ -365,6 +365,55 @@ nonisolated final class OracleProviderTests: XCTestCase {
         XCTAssertEqual(second.count, first.count + 1, "重试应该多一句提醒")
     }
 
+    // MARK: 你写英文，他回英文（2026-11-18 真机）
+
+    private func readingReply(heard: String, said: String) -> String {
+        // JSON 字符串里的换行要写成转义的 \n。
+        reply("读到：\(heard)\\n语气：静\\n回应：\(said)\\n关照：否")
+    }
+
+    /// 真机：他读对了你那句英文，却用中文回。再问一次，第二次是英文就用第二次的。
+    func testEnglishWritingAnsweredInChineseIsAskedAgain() async throws {
+        let transport = FakeTransport(responses: [
+            (Data(readingReply(heard: "I'm Harry Potter.", said: "写得很慢。这个名字，你想了多久？").utf8), 200),
+            (Data(readingReply(heard: "I'm Harry Potter.", said: "Harry Potter. I know that name.").utf8), 200),
+        ])
+        let text = try await ask(makeOracle(transport), "I'm Harry Potter.")
+        XCTAssertEqual(text, "Harry Potter. I know that name.")
+        let requests = await transport.sentRequests
+        XCTAssertEqual(requests.count, 2)
+        let body = try XCTUnwrap(String(data: try XCTUnwrap(requests[1].httpBody), encoding: .utf8))
+        XCTAssertTrue(body.contains(WrittenLanguage.englishRetryReminder), "重问要说清是语言不对")
+    }
+
+    /// 第二次还是中文：照写，不放弃——有回应总比没有好，也不改写他的话。
+    func testStillChineseAfterRetryIsWrittenAnyway() async throws {
+        let transport = FakeTransport(json: readingReply(heard: "hi", said: "你好。"))
+        let text = try await ask(makeOracle(transport), "hi")
+        XCTAssertEqual(text, "你好。")
+        let requests = await transport.sentRequests
+        XCTAssertEqual(requests.count, 2, "只重问一次")
+    }
+
+    /// 你写中文、或中英混写，他怎么回都不重问。
+    func testChineseOrMixedWritingIsNeverAskedAgain() async throws {
+        for (written, said) in [("今天好累", "累了就早点睡。"), ("今天 meeting 好长", "meeting 开完了吗？")] {
+            let transport = FakeTransport(json: readingReply(heard: written, said: said))
+            _ = try await ask(makeOracle(transport), written)
+            let count = await transport.sentRequests.count
+            XCTAssertEqual(count, 1, "「\(written)」不该重问")
+        }
+    }
+
+    func testWrittenLanguageClassification() {
+        XCTAssertEqual(WrittenLanguage.of("I'm Harry potter, and I will kill you."), .english)
+        XCTAssertEqual(WrittenLanguage.of("你好"), .chinese)
+        XCTAssertEqual(WrittenLanguage.of("hello 你好"), .mixed)
+        XCTAssertNil(WrittenLanguage.of("123 ?!"))
+        XCTAssertTrue(OracleRequest(text: "hello", strokeCount: 3).userContent(text: "hello").contains(WrittenLanguage.englishOnlyNote))
+        XCTAssertFalse(OracleRequest(text: "你好", strokeCount: 3).userContent(text: "你好").contains(WrittenLanguage.englishOnlyNote))
+    }
+
     /// 名单要认得出常见写法，大小写不敏感，而且要说清是哪个词。
     func testGuardCatchesCommonLeaksAndNamesTheWord() {
         XCTAssertEqual(OracleIdentityGuard.leakedName(in: "I am DeepSeek-V4."), "deepseek")

@@ -58,7 +58,7 @@ nonisolated final class ReadingReplyTests: XCTestCase {
             settings: OracleRequestSettings(temperature: 0.8, maxTokens: 300, timeout: 5, wantsModelThinking: false)
         )
         let png = Data([0x89, 0x50, 0x4E, 0x47])
-        let body = try oracle.body(for: "现在看附图。", image: png, isRetry: false)
+        let body = try oracle.body(for: "现在看附图。", image: png)
         let payload = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
         let messages = try XCTUnwrap(payload["messages"] as? [[String: Any]])
         let user = try XCTUnwrap(messages.first { $0["role"] as? String == "user" })

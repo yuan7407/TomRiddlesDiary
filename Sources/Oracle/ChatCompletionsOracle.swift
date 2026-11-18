@@ -80,23 +80,35 @@ nonisolated struct ChatCompletionsOracle: OracleProvider {
         // 有图时手机没认出字也照样问：图才是他写的东西（计划 R3）。没图又没字，才是真的无话可说。
         guard !trimmed.isEmpty || request.handwriting != nil else { throw OracleFailure.nothingToSay }
 
-        // 试一次，泄漏身份就再试一次。**不改写模型的话**，理由见文件头。
+        // 试一次，不对就再试一次。**不改写模型的话**，理由见文件头。
         // 只重试一次而不是反复重试：如果 prompt 真的没管住它，重试十次也没用，
         // 而每次重试都要花钱、花时间，还要把内容再发一遍。
+        // 两种「不对」：泄漏身份（第二次还漏就放弃）；你只写了英文他却用了中文（2026-11-18 真机，
+        // 第二次还是中文就照写——有回应总比没有好，语言不对不是要藏起来的事）。
+        var reminder: String?
         for attempt in 0 ... 1 {
             // 发出去的是「图 + 手机认的字 + 下笔的样子」；身份有没有泄漏，只看要写上纸的那句回应。
-            let raw = try await askOnce(request.userContent(text: trimmed), image: request.handwriting, isRetry: attempt > 0)
+            let raw = try await askOnce(request.userContent(text: trimmed), image: request.handwriting, reminder: reminder)
             let reading = ReadingReply.parse(raw)
             #if DEBUG
             if !reading.followedFormat { print("── 魂 ── 模型没按四行格式回，整段当作回应") }
             #endif
             guard !reading.said.isEmpty else { throw OracleFailure.couldNotReach(detail: "回应是空的") }
-            guard let leak = OracleIdentityGuard.leakedName(in: reading.said) else {
-                return OracleReply(text: reading.said, heard: reading.heard, mood: reading.mood, needsCare: reading.needsCare)
+            if let leak = OracleIdentityGuard.leakedName(in: reading.said) {
+                if attempt == 1 { throw OracleFailure.brokeCharacter(leaked: leak) }
+                reminder = Self.identityReminder
+                continue
             }
-            if attempt == 1 {
-                throw OracleFailure.brokeCharacter(leaked: leak)
+            // 你写的是什么语言：先信他自己读到的（看图读的），没有再看手机认的字。
+            let written = WrittenLanguage.of(reading.heard ?? trimmed)
+            if attempt == 0, !WrittenLanguage.reply(reading.said, suits: written) {
+                #if DEBUG
+                print("── 魂 ── 你写的是英文，他用了中文，再问一次")
+                #endif
+                reminder = WrittenLanguage.englishRetryReminder
+                continue
             }
+            return OracleReply(text: reading.said, heard: reading.heard, mood: reading.mood, needsCare: reading.needsCare)
         }
         // 上面的循环两条路径都会 return 或 throw，走不到这里。
         throw OracleFailure.couldNotReach(detail: "重试逻辑走到了不可能的分支")
@@ -104,7 +116,10 @@ nonisolated struct ChatCompletionsOracle: OracleProvider {
 
     // MARK: 内部
 
-    private func askOnce(_ text: String, image: Data?, isRetry: Bool) async throws -> String {
+    /// 说漏身份之后重问时的提醒。
+    static let identityReminder = "刚才那次回答里出现了模型名或技术身份。重新答一次，只用你在这本日记里的身份。"
+
+    private func askOnce(_ text: String, image: Data?, reminder: String?) async throws -> String {
         guard let url = endpoint.chatURL else {
             throw OracleFailure.couldNotReach(detail: "端点配置拼不出合法地址")
         }
@@ -113,7 +128,7 @@ nonisolated struct ChatCompletionsOracle: OracleProvider {
         httpRequest.httpMethod = "POST"
         httpRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
         httpRequest.setValue("Bearer \(endpoint.apiKey)", forHTTPHeaderField: "Authorization")
-        httpRequest.httpBody = try body(for: text, image: image, isRetry: isRetry)
+        httpRequest.httpBody = try body(for: text, image: image, reminder: reminder)
 
         let (data, response) = try await transport.send(httpRequest)
 
@@ -130,7 +145,7 @@ nonisolated struct ChatCompletionsOracle: OracleProvider {
 
     /// 请求体。有图时用户消息是 OpenAI 兼容的内容块数组：一段文字 + 一张 base64 内嵌的 PNG
     /// （DeepSeek 的 Chat Completions 接受这种格式，2026-11-17 用合成测试图真实请求确认，见 MEMORY）。
-    func body(for text: String, image: Data?, isRetry: Bool) throws -> Data {
+    func body(for text: String, image: Data?, reminder: String? = nil) throws -> Data {
         let userContent: Any
         if let image {
             userContent = [
@@ -145,11 +160,8 @@ nonisolated struct ChatCompletionsOracle: OracleProvider {
             ["role": "user", "content": userContent],
         ]
         // 重试时额外提醒一句。不改 system prompt——那样两次请求就不是同一个实验了。
-        if isRetry {
-            messages.append([
-                "role": "system",
-                "content": "刚才那次回答里出现了模型名或技术身份。重新答一次，只用你在这本日记里的身份。",
-            ])
+        if let reminder {
+            messages.append(["role": "system", "content": reminder])
         }
 
         var payload: [String: Any] = [

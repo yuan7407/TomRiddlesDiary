@@ -169,7 +169,8 @@ nonisolated enum HandwritingFeel {
     /// 0.05 秒同样只是量级推算，待真机笔迹核实。
     static let penLiftDuration: TimeInterval = 0.05
 
-    /// 魂写字比真人快多少倍（2026-09-01 用户实测后拍板：1.5 倍）。
+    /// 魂写字比真人快多少倍（2026-09-01 用户实测后拍板 1.5 倍；2026-11-18 真机上又嫌慢，
+    /// 用户要求「再加快 1.5 倍」，改成 1.5 × 1.5 = 2.25：外屏一段 19 字原来要写约 18 秒，现在约 12 秒）。
     ///
     /// ── 为什么这是一个独立的倍数，而不是把书写速度改大 ──
     /// 一段回应的时长 = 落墨 + 笔间抬笔移动 + 每次抬落笔的固定耗时。
@@ -183,7 +184,7 @@ nonisolated enum HandwritingFeel {
     /// 用户实测 33 字要写 37 秒，判断偏慢；1.5 倍之后约 25 秒。
     ///
     /// 这个值**是产品手感选择，不是测量结果**，和 A10 要校准的那批参数不是一回事。
-    static let soulWritesFasterThanHumanBy: Double = 1.5
+    static let soulWritesFasterThanHumanBy: Double = 2.25
 
     /// 默认随机种子。同一输入配同一种子必然得到同一结果。
     /// 现状的副作用：同一段文字每次重播的抖动完全一样。等 Oracle 接入后应改为

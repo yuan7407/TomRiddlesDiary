@@ -31,7 +31,7 @@
 //  接一个已知偏两倍的值，比用一个诚实的固定值更糟。见 `HandwritingSizeEstimator` 文件头。
 //
 //  ── 2026-11-11：装配顺序末尾多了一步「节奏」──
-//  定落点 → 排版 → 手绘化（含整段 1.5 倍缩放）→ 节奏。节奏只改时间不改几何，所以放在最后；
+//  定落点 → 排版 → 手绘化（含整段提速，见 `HandwritingFeel.soulWritesFasterThanHumanBy`）→ 节奏。节奏只改时间不改几何，所以放在最后；
 //  默认不加（`cadence` 为 nil），App 在 `DiaryPageView` 构造模型时显式打开，现有测试不受影响。
 //
 
@@ -322,7 +322,7 @@ nonisolated struct ReplyComposer: Sendable {
             polylines,
             configuration: HandwritingFeel.humanizerConfiguration(referenceScale: glyphSize),
             seed: seed,
-            // 魂写字比真人快（用户拍板 1.5 倍）。整体缩放而不是调书写速度，
+            // 魂写字比真人快（倍数是用户拍板的，见配置）。整体缩放而不是调书写速度，
             // 理由见 `HandwritingFeel.soulWritesFasterThanHumanBy`。
             timeScale: HandwritingFeel.soulWritesFasterThanHumanBy
         )
@@ -344,7 +344,7 @@ nonisolated struct ReplyComposer: Sendable {
             )
         } ?? sequence
 
-        // 节奏排在最后：它要的是「整段缩放之后」的时间（决策 77 的 1.5 倍已经在 pipeline 里做完），
+        // 节奏排在最后：它要的是「整段缩放之后」的时间（决策 77 的整段提速已经在 pipeline 里做完），
         // 停顿表达的是他在斟酌，不跟着书写速度一起变快。
         let paced = cadence.map { cadence in
             cadence.apply(
