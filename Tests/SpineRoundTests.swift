@@ -188,4 +188,46 @@ nonisolated final class SpineRoundTests: XCTestCase {
         for _ in 0 ..< 300 where !model.phase.isCommitted { try await Task.sleep(for: .milliseconds(10)) }
         XCTAssertTrue(model.phase.isCommitted, "回到摊平以后应该照常成页：\(model.phase)")
     }
+
+    /// 一轮成页后，上一张对开收进旧页；半合着能往回翻、翻过最新的回到当前；摊平就回到当前。
+    @MainActor
+    func testOldLeavesCanBeBrowsedWhileAjar() async throws {
+        let model = waitingModel(longestWait: 0.5)
+        model.postureChanged(.flat)
+        model.strokeFinished(writing(from: 100))
+        for _ in 0 ..< 300 where model.phase != .replying { try await Task.sleep(for: .milliseconds(10)) }
+        XCTAssertTrue(model.leaves.isEmpty, "第一轮之前纸上什么都没有，不该收出一张空旧页")
+
+        var next = model.book.current.drawing
+        next.strokes += writing(from: 120).strokes
+        model.strokeFinished(next)
+        for _ in 0 ..< 300 where model.leaves.isEmpty { try await Task.sleep(for: .milliseconds(10)) }
+        let leaf = try XCTUnwrap(model.leaves.first)
+        XCTAssertFalse(leaf.yourInk.isEmpty, "旧页上要有你上一轮的压痕")
+        XCTAssertFalse(leaf.hisInk.isEmpty, "旧页上要有他上一轮的字")
+
+        model.browseBack()
+        XCTAssertNil(model.browsing, "摊平时不翻旧页")
+        model.postureChanged(.ajar)
+        model.browseBack()
+        XCTAssertEqual(model.browsing, 0)
+        model.browseForward()
+        XCTAssertNil(model.browsing, "翻过最新的旧页就回到当前这张")
+        model.browseBack()
+        model.postureChanged(.flat)
+        XCTAssertNil(model.browsing)
+    }
+
+    /// 墨没干就合上：他还湿着的笔画按书脊对称印到对页上。
+    @MainActor
+    func testClosingOnWetInkLeavesAMirrorPrint() async throws {
+        let model = await round(writingFrom: 100)
+        model.postureChanged(.flat)
+        try await Task.sleep(for: .seconds(1))
+        let drawn = try XCTUnwrap(model.reply?.drawnPolylines.first?.points.first)
+        model.postureChanged(.closed)
+        let print = try XCTUnwrap(model.setOff.first?.points.first, "合上时没有印下镜像")
+        XCTAssertEqual(print.x, 2 * 475.5 - drawn.x, accuracy: 1e-6, "镜像要以书脊为轴")
+        XCTAssertEqual(print.y, drawn.y, accuracy: 1e-6)
+    }
 }

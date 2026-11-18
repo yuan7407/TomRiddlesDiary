@@ -51,6 +51,8 @@ struct DiaryPageView: View {
     @State private var openingHintShown = false
     /// 外屏的封面盖不盖着（计划 S 组）。规则全在 `CoverState`。
     @State private var cover = CoverState()
+    /// 半合着翻旧页时，这一次是往回翻（旧页从左边转进来）还是往后翻。
+    @State private var turningBack = true
     /// 他写字时手上沙沙的触感（计划 P10）。
     @State private var haptics = WritingHaptics()
     @Environment(\.scenePhase) private var scenePhase
@@ -93,6 +95,12 @@ struct DiaryPageView: View {
                     // 你这一轮被纸喝下去，喝完留一层压痕（计划 P4）。
                     if let drinking = model.drinking {
                         DrinkingInkView(ink: drinking)
+                    }
+
+                    // 合上时他的墨还没干，在对页印下的镜像（计划 P7）。
+                    if !model.setOff.isEmpty {
+                        InkImpression(polylines: model.setOff, opacity: BookFeel.Impression.setOffOpacity,
+                                      blur: BookFeel.Impression.setOffBlur)
                     }
 
                     // 他上一段话沉下去（计划 P4）。
@@ -172,6 +180,32 @@ struct DiaryPageView: View {
                         )
                     }
                     #endif
+
+                    // 半合着是翻看（计划 P7）：这一层盖住当前对开、接住左右划——半合着不写字。
+                    // 往右划翻回更早的一张（像真书往回翻），往左划翻回来；翻过最新的旧页就回到当前这张。
+                    if posture == .ajar {
+                        let look = BookFeel.Impression.self
+                        let spine = spread.fold.map { ($0.left + $0.width / 2) / max(1, geometry.size.width) } ?? 0.5
+                        ZStack {
+                            if let index = model.browsing, model.leaves.indices.contains(index) {
+                                OldLeafView(leaf: model.leaves[index], spread: spread,
+                                            dateLine: PageFurniture.dateLine(for: Date()), safe: screen.safeAreaInsets)
+                                    .id(index)
+                                    .transition(.pageTurn(spineAnchor: spine, fromLeft: turningBack))
+                            }
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .contentShape(Rectangle())
+                        .gesture(DragGesture(minimumDistance: look.swipeDistance / 2).onEnded { value in
+                            if value.translation.width > look.swipeDistance {
+                                turningBack = true
+                                withAnimation(.easeInOut(duration: look.turnDuration)) { model.browseBack() }
+                            } else if value.translation.width < -look.swipeDistance {
+                                turningBack = false
+                                withAnimation(.easeInOut(duration: look.turnDuration)) { model.browseForward() }
+                            }
+                        })
+                    }
 
                     // 外屏的封面盖在最上面（计划 S 组）：盖着时纸上什么都碰不到、写不了字。
                     if showsCover {

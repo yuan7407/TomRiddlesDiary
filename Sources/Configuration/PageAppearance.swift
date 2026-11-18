@@ -44,10 +44,6 @@ nonisolated enum PageAppearance {
     /// 沉进纸里的墨：褐色。老的铁胆墨迹年深日久就是这个颜色。同样是原型里肉眼定的。
     static let sunkInk = InkTone(red: 0.478, green: 0.361, blue: 0.235)
 
-    /// 他读你的字时，重新变湿的那一段墨。比 `wetInk` 亮一些：它压在已经干了的黑字上，
-    /// 用同一个蓝黑会完全看不出来（原型里试过）。
-    static let rereadInk = InkTone(red: 0.125, green: 0.204, blue: 0.541)
-
     /// 从干到湿的一排颜色，逐段上色时按湿度取。
     ///
     /// 为什么预先算好一排而不是每段现混：一段回应有几千条小线段，每帧都要重画，

@@ -106,6 +106,15 @@ extension DiaryPagePhase {
     }
 }
 
+/// 一张翻过去的对开（计划 P7）：只剩压痕——你那一轮被纸喝下去的字、他沉下去的字、合上时印下的镜像。
+nonisolated struct OldLeaf: Equatable, Sendable {
+    /// 这张对开是第几张（左页页码 2n）。
+    let number: Int
+    let yourInk: [Polyline]
+    let hisInk: [Polyline]
+    let setOff: [Polyline]
+}
+
 /// 魂已经写在这一页上的那段回应。
 ///
 /// 目前**没有生产者**：唯一能产出回应的是 Oracle，而 Oracle 属计划 E6 还没接。
@@ -391,6 +400,8 @@ final class DiaryPageModel {
         let old = posture
         guard new != old else { return }
         posture = new
+        if new != .ajar { browsing = nil }
+        if new == .closed, old != nil { pressSetOff() }
         let pending = phase == .waiting || phase == .aboutToRespond
         if new.commitsPendingWritingOnEntry, old != nil, pending {
             countdown?.cancel()
@@ -757,6 +768,45 @@ final class DiaryPageModel {
     /// 画布上的笔迹是第几版由模型给的（翻页、喝字都会从外面换掉整份笔迹）。见 `HandwritingCanvas.drawingRevision`。
     private(set) var drawingRevision = 0
 
+    // MARK: 旧页与印痕（计划 P7）
+
+    /// 翻过去的对开，旧的在前。只在内存里（跨启动保留属 P11）。
+    private(set) var leaves: [OldLeaf] = []
+    /// 半合着正在看哪一张旧页（`leaves` 的下标）；nil = 看的是当前这张。
+    private(set) var browsing: Int?
+    /// 合上时他的墨还没干，在对页印下的镜像（书脊对称）。下一轮成页时随这张对开收进旧页。
+    private(set) var setOff: [Polyline] = []
+
+    /// 半合着往回翻一张。已经是最旧的就不动。
+    func browseBack() {
+        guard posture == .ajar, !leaves.isEmpty else { return }
+        browsing = max(0, (browsing ?? leaves.count) - 1)
+    }
+
+    /// 半合着往后翻一张；翻过最新的旧页就回到当前这张。
+    func browseForward() {
+        guard let index = browsing else { return }
+        browsing = index + 1 < leaves.count ? index + 1 : nil
+    }
+
+    /// 合上那一刻：他的回应里还湿着的笔画，按书脊对称印到对页上（原型「墨没干就合上，会在对页印下镜像」）。
+    /// 湿不湿按 `BookFeel.inkDrying` 的干燥时间算：这一笔写完到现在不到干燥时间就是湿的。
+    private func pressSetOff() {
+        guard let spineX = (writingLayout?.columns ?? facingColumns)?.spineX, let current = reply,
+              case .playing(let since) = current.playback else { return }
+        let elapsed = (ContinuousClock.now - since).inSeconds
+        let timeline = InkAgeTimeline(sequence: current.sequence)
+        let drawn = current.drawnPolylines
+        var wet: [Polyline] = []
+        for (index, line) in drawn.enumerated() where timeline.age(ofStroke: index, fraction: 1, secondsSinceStart: elapsed) < BookFeel.inkDrying.dryingTime {
+            wet.append(Polyline(points: line.points.map { Point2D(x: 2 * spineX - $0.x, y: $0.y) }))
+        }
+        setOff += wet
+        #if DEBUG
+        if !wet.isEmpty { print("── 合上（P7）── \(wet.count) 笔墨还没干，印到了对页") }
+        #endif
+    }
+
     /// 这张对开是第几张：左页页码 2n、右页 2n + 1。
     var leafNumber: Int { max(1, roundsCommitted) + book.currentIndex }
 
@@ -774,6 +824,16 @@ final class DiaryPageModel {
 
         // ① 他上一段（含开场白、被打断停在半截的）沉下去。
         let leaving = settledReplies + (reply.map { [$0] } ?? [])
+        // 上一张对开收进旧页（计划 P7：半合着可以往回翻看）：你上一轮的压痕 + 他写在上面的字 + 合上时印下的镜像。
+        if drinking != nil || !leaving.isEmpty {
+            leaves.append(OldLeaf(
+                number: leafNumber,
+                yourInk: drinking?.polylines ?? [],
+                hisInk: leaving.flatMap(\.drawnPolylines),
+                setOff: setOff
+            ))
+        }
+        setOff = []
         if !leaving.isEmpty {
             var ids: [Int] = []
             for item in leaving {

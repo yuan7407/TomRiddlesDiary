@@ -29,6 +29,23 @@ nonisolated enum BookFeel {
     /// 湿墨比干墨粗多少（比例）。湿的时候墨在纸面上鼓着，看起来略粗。
     static let wetInkWidthGain: Double = 0.18
 
+    /// 旧页与印痕（计划 P7）。原型里旧页只剩「压痕」，要捂热（P8）才看得清；这里先定一个看得见但不抢眼的淡度。
+    /// **未经真机验证**，是在模拟器上对着原型截图目测的。
+    enum Impression {
+        /// 旧页上你的字（早已被纸喝下去）有多淡、多糊（点）。
+        static let yourOpacity: Double = 0.1
+        static let yourBlur: Double = 1.2
+        /// 旧页上他的字（沉下去的）有多淡、多糊。
+        static let hisOpacity: Double = 0.3
+        static let hisBlur: Double = 0.6
+        /// 合上时墨没干、印到对页的镜像：比他沉下去的字还淡，略糊。
+        static let setOffOpacity: Double = 0.18
+        static let setOffBlur: Double = 0.8
+        /// 半合着翻一张旧页的时长（秒）与左右划多远才算翻（点）。
+        static let turnDuration: TimeInterval = 0.55
+        static let swipeDistance: Double = 40
+    }
+
     /// 一轮的一生（计划 P4，网页原型 drawDrink / drawSinking / 压痕）。全部照搬原型，未经真机复核。
     /// 长度是原型单位（乘 `PaperLook.pointsPerPrototypeUnit`）。
     enum Drink {
@@ -66,20 +83,6 @@ nonisolated enum BookFeel {
         static let glintOffsetY: Double = -0.34
         static let glintRadius: Double = 0.26
     }
-
-    // MARK: 他在读
-
-    /// 他读你的字时，那一小段「重新变湿」的墨怎么走。
-    /// 速度 25 字高/秒：一句十来个字的话大约读一秒。上下限保证太短的话也看得见、太长的话不拖。
-    static let readingSweep = ReadingSweepConfiguration(
-        speedInGlyphHeightsPerSecond: 25,
-        shortestDuration: 0.7,
-        longestDuration: 1.5,
-        tailFractionOfInk: 0.45,
-        shortestTailInGlyphHeights: 1.2,
-        longestTailInGlyphHeights: 4.4,
-        fadeOutDuration: 0.3
-    )
 
     // MARK: 他在想
 
