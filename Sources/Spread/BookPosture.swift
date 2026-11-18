@@ -45,9 +45,9 @@ nonisolated enum BookPosture: Equatable, Sendable {
     /// 摊平：书写。
     case flat
 
-    /// 这个姿态下，停笔之后可不可以成页。只有摊平时可以：
-    /// 半合着是在翻旧页，这时把半句话交出去是误触发。
-    var allowsCommitAfterPause: Bool { self == .flat }
+    /// 这个姿态下，停笔之后可不可以成页。半合着不行：那是在翻旧页，这时把半句话交出去是误触发。
+    /// 合上时可以：外屏翻开封面以后照样在外屏上写（计划 S6，2026-11-18 起外屏能写字）。
+    var allowsCommitAfterPause: Bool { self != .ajar }
 
     /// 进入这个姿态的那一刻，要不要把还没交出去的字立刻交出去。只有合上时要。
     var commitsPendingWritingOnEntry: Bool { self == .closed }

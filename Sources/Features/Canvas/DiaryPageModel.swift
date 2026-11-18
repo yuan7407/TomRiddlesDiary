@@ -380,6 +380,30 @@ final class DiaryPageModel {
     /// 由界面算（它知道安全区），模型只拿来交给装配点。
     private(set) var facingColumns: FacingColumns?
 
+    /// 合页姿态（计划 P7「姿态就是模式」）。nil = 还不知道。
+    private(set) var posture: BookPosture?
+
+    /// 姿态变了：
+    /// · 合上是句号——还没交出去的字立刻交出去，他在合着的本子里接着写；
+    /// · 半合着是在翻看，停笔不成页（倒计时照走，但不交）；
+    /// · 从半合回到摊平，等待从现在重新算，不会一回来就把半句话交出去。
+    func postureChanged(_ new: BookPosture) {
+        let old = posture
+        guard new != old else { return }
+        posture = new
+        let pending = phase == .waiting || phase == .aboutToRespond
+        if new.commitsPendingWritingOnEntry, old != nil, pending {
+            countdown?.cancel()
+            countdown = Task { [weak self] in await self?.commit() }
+        } else if old == .ajar, pending {
+            lastLift = .now
+        }
+    }
+
+    /// 这一轮是在哪种版面上写的（成页那一刻记下）。合上本子时屏幕会换成外屏，
+    /// 但他的回应要按你写字时的那张对开来排，不然会排到别的屏幕的坐标里去。
+    private var writingLayout: (columns: FacingColumns?, area: PageRegion?)?
+
     func facingColumnsChanged(_ columns: FacingColumns?) {
         guard columns != facingColumns else { return }
         facingColumns = columns
@@ -458,6 +482,13 @@ final class DiaryPageModel {
         countdown = Task { [weak self] in
             while !Task.isCancelled {
                 guard let self, let lift = self.lastLift else { return }
+
+                // 半合着在翻看：不成页，也不给「快要回应了」的预告（计划 P7）。
+                if self.posture?.allowsCommitAfterPause == false {
+                    self.setPhase(.waiting)
+                    try? await Task.sleep(for: InteractionSettings.pageCommitCheckInterval)
+                    continue
+                }
 
                 let decision = self.trigger.decide(
                     sinceLastLift: (ContinuousClock.now - lift).inSeconds,
@@ -545,6 +576,7 @@ final class DiaryPageModel {
 
         setPhase(.understanding)
         recognitionTask?.cancel()
+        writingLayout = (facingColumns, writableArea)
         // 他上一段沉下去、你这一轮被纸喝下去（计划 P4）。开场白也一样沉下去（原型 greetingGhost）。
         beginNewRound(round: round, previousBoundary: committedBoundary)
 
@@ -874,7 +906,7 @@ final class DiaryPageModel {
 
     /// 把魂说的话装配成笔画并开始逐笔写。
     private func writeOnPage(_ text: String) async {
-        guard let writableArea else {
+        guard let writableArea = writingLayout?.area ?? writableArea else {
             // 界面还没报过尺寸，定不了落点。这属于接线错误而不是运行时状况，
             // 所以如实报「送不出去」而不是硬用一个猜的页面大小——
             // 猜出来的落点会把回应画到纸外。
@@ -950,7 +982,7 @@ final class DiaryPageModel {
         print("── 翻页（计划 E3f）── 这一页放不下了，翻到第 \(book.currentIndex + 1) 页")
         #endif
 
-        guard let writableArea else {
+        guard let writableArea = writingLayout?.area ?? writableArea else {
             fallSilent(.couldNotReach(detail: "页面尺寸未知"))
             return
         }
@@ -980,6 +1012,8 @@ final class DiaryPageModel {
         _ text: String, facing writing: PageRegion?, writableArea: PageRegion, glyphSize: Double,
         seed: UInt64, fallbackAfter: PageRegion?? = .none
     ) throws -> ComposedReply {
+        // 按你写字时那张版面排（合上本子时屏幕已经换了，见 `writingLayout`）。
+        let facingColumns = writingLayout.map { $0.columns } ?? self.facingColumns
         if let facingColumns, let writing {
             do {
                 return try composer.composeAcrossSpine(

@@ -107,9 +107,24 @@ nonisolated enum CoverLook {
         /// 封面压在纸上的那道影子：最浓多少、多宽（点）。
         static let pageShadowOpacity: Double = 0.32
         static let pageShadowWidth: Double = 46
-        /// 教你怎么翻：封面出现后静放这么久，右边微微掀起一下又落回（只在每次启动第一次出现时）。
-        static let peekDelay: TimeInterval = 2.4
-        static let peekProgress: Double = 0.07
-        static let peekDuration: TimeInterval = 0.7
+        /// 教你怎么翻（用户 2026-11-18：「封面 3 秒没反应之后出现 3 秒，循环，无文字」）：
+        /// 一点淡淡的光从书口那边（右边中间）往左滑过一段、拖着一小截尾巴，封面右边跟着微微掀起又落回。
+        /// 一碰封面就停，重新开始数 3 秒。
+        static let hintIdle: TimeInterval = 3
+        static let hintDuration: TimeInterval = 3
+        /// 封面跟着掀起多少（翻开进度的比例）。
+        static let hintLift: Double = 0.06
+        /// 光从封面宽的哪儿起、滑到哪儿，在封面高的哪儿；光点多大（封面宽的比例）、最亮多亮。
+        static let hintStartX: Double = 0.9
+        static let hintEndX: Double = 0.5
+        static let hintY: Double = 0.5
+        static let hintGlowRadius: Double = 0.05
+        static let hintGlowOpacity: Double = 0.38
+        /// 尾巴：几个点、每个点落后多少（这一段时间的比例）。
+        static let hintTrailCount = 8
+        static let hintTrailStep: Double = 0.025
+        /// 一段提示里：前多少淡入、到多少开始淡出（这一段时间的比例）。
+        static let hintFadeIn: Double = 0.15
+        static let hintFadeOutFrom: Double = 0.75
     }
 }

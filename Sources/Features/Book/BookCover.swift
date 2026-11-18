@@ -12,6 +12,7 @@
 //
 //  翻开的样子：封面绕左边的书脊转开（3D 透视），转离光源时变暗，压在纸上的那道影子跟着变淡；
 //  手指拖着走，松手时过了一定比例或甩得够快就翻开，否则弹回。合上时倒着演一遍。
+//  封面静着 3 秒没人碰，就有一点淡淡的光从书口往左滑过、封面跟着微微掀起，教你怎么翻（循环，无文字）。
 //  系统设置「减少动态效果」时不转，只淡出淡入。
 //
 
@@ -73,16 +74,20 @@ struct BookCoverView: View {
     /// 0 = 合着，1 = 完全翻开。
     @State private var progress: Double = 0
     @State private var thumps = 0
+    /// 教你怎么翻的那一段演到哪了（0…1）；nil = 没在演。
+    @State private var hint: Double?
+    /// 碰过封面几次。每碰一次，提示就停下、重新开始数（`.task(id:)` 换 id 会取消上一轮）。
+    @State private var touches = 0
+    @State private var dragging = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    /// 这一次启动里有没有演过「掀一下教你怎么翻」。一次启动只演一次。
-    @MainActor private static var peekedThisLaunch = false
 
     var body: some View {
         GeometryReader { proxy in
             let size = proxy.size
             let m = CoverLook.Motion.self
-            let angle = progress * m.openAngleDegrees
+            // 提示时封面右边跟着微微掀起（光滑到一半时最高）。
+            let lift = hint.map { reduceMotion ? 0 : sin(Self.travel($0) * .pi) * m.hintLift } ?? 0
+            let angle = max(progress, lift) * m.openAngleDegrees
             ZStack(alignment: .topLeading) {
                 // 封面压在纸上的那道影子：封面右边缘投在纸上，掀得越开越淡。
                 if !reduceMotion, progress > 0 {
@@ -98,11 +103,16 @@ struct BookCoverView: View {
                     .rotation3DEffect(.degrees(reduceMotion ? 0 : -angle), axis: (x: 0, y: 1, z: 0),
                                       anchor: .leading, perspective: m.perspective)
                     .opacity(reduceMotion ? 1 - progress : (angle >= 90 ? 0 : 1))
+
+                if let hint {
+                    HintGlow(phase: hint, size: size, moves: !reduceMotion)
+                }
             }
             .frame(width: size.width, height: size.height)
             .contentShape(Rectangle())
             .gesture(openGesture(width: size.width))
             .onAppear { appeared() }
+            .task(id: touches) { await loopHint() }
         }
         .ignoresSafeArea()
         .sensoryFeedback(.impact(weight: .heavy, intensity: 0.8), trigger: thumps)
@@ -116,10 +126,16 @@ struct BookCoverView: View {
         let m = CoverLook.Motion.self
         return DragGesture(minimumDistance: m.minimumDrag)
             .onChanged { value in
+                if !dragging {
+                    dragging = true
+                    hint = nil
+                    touches += 1
+                }
                 // 只认往左拖；往右拖封面不动（书脊在左边，封面没法往右翻）。
                 progress = min(1, max(0, -value.translation.width / width))
             }
             .onEnded { value in
+                dragging = false
                 let flung = -value.predictedEndTranslation.width / width
                 if progress > m.openProgress || flung > m.flingProgress {
                     finishOpening()
@@ -147,17 +163,65 @@ struct BookCoverView: View {
                 thumps += 1
                 onCloseMotionPlayed()
             }
-        } else if !Self.peekedThisLaunch, !reduceMotion {
-            // 教你怎么翻：静放一会儿，右边微微掀起一下又落回。
-            Self.peekedThisLaunch = true
-            Task {
-                try? await Task.sleep(for: .seconds(m.peekDelay))
-                guard progress == 0 else { return }
-                withAnimation(.easeInOut(duration: m.peekDuration / 2)) { progress = m.peekProgress } completion: {
-                    withAnimation(.easeInOut(duration: m.peekDuration / 2)) { progress = 0 }
-                }
+        }
+    }
+
+    /// 封面静着 3 秒就演一段提示（3 秒），然后再等 3 秒、再演，一直循环；碰一下就从头数。
+    /// 用异步循环推进而不是 TimelineView（模拟器空闲时会冻结 TimelineView，见 MEMORY 已知陷阱）。
+    private func loopHint() async {
+        let m = CoverLook.Motion.self
+        let frame = Duration.seconds(1.0 / 60)
+        while !Task.isCancelled {
+            try? await Task.sleep(for: .seconds(m.hintIdle))
+            guard !Task.isCancelled, progress == 0, !dragging else { continue }
+            let start = ContinuousClock.now
+            while !Task.isCancelled {
+                let t = (ContinuousClock.now - start).inSeconds / m.hintDuration
+                if t >= 1 { break }
+                hint = t
+                try? await Task.sleep(for: frame)
+            }
+            hint = nil
+        }
+    }
+
+    /// 提示里光点走到哪了：淡入时不动，之后缓入缓出地走，淡出时停在终点。0…1。
+    nonisolated static func travel(_ phase: Double) -> Double {
+        let m = CoverLook.Motion.self
+        let u = min(1, max(0, (phase - m.hintFadeIn) / (m.hintFadeOutFrom - m.hintFadeIn)))
+        return u * u * (3 - 2 * u)   // smoothstep：算法本身的常数
+    }
+}
+
+/// 提示的那一点光：从书口往左滑，拖一小截尾巴。没有文字（用户要求）。
+private struct HintGlow: View {
+    let phase: Double
+    let size: CGSize
+    /// 「减少动态效果」时光点不走，只在书口那儿淡入淡出。
+    let moves: Bool
+
+    var body: some View {
+        let m = CoverLook.Motion.self
+        let fade = min(phase / m.hintFadeIn, 1) * min((1 - phase) / (1 - m.hintFadeOutFrom), 1)
+        let radius = m.hintGlowRadius * size.width
+        Canvas { context, _ in
+            for k in 0 ... (moves ? m.hintTrailCount : 0) {
+                let u = moves ? BookCoverView.travel(phase - Double(k) * m.hintTrailStep) : 0
+                let x = size.width * (m.hintStartX + (m.hintEndX - m.hintStartX) * u)
+                let y = size.height * m.hintY
+                let falloff = 1 - Double(k) / Double(m.hintTrailCount + 1)
+                let r = radius * (0.55 + 0.45 * falloff)
+                context.fill(
+                    Path(ellipseIn: CGRect(x: x - r, y: y - r, width: r * 2, height: r * 2)),
+                    with: .radialGradient(
+                        Gradient(colors: [CoverLook.Plate.goldLight.color.opacity(m.hintGlowOpacity * fade * falloff), .clear]),
+                        center: CGPoint(x: x, y: y), startRadius: 0, endRadius: r
+                    )
+                )
             }
         }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 }
 

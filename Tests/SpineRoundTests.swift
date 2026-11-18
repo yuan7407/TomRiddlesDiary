@@ -145,4 +145,47 @@ nonisolated final class SpineRoundTests: XCTestCase {
         XCTAssertLessThan(hint.y, page.bottom)
         XCTAssertGreaterThan(hint.y, box.top, "提示应该在他那两句下面")
     }
+
+    // MARK: P7 姿态就是模式
+
+    @MainActor
+    private func waitingModel(longestWait: Double) -> DiaryPageModel {
+        let trigger = PageCommitTrigger(configuration: PageCommitConfiguration(
+            pauseMultiplier: 2, shortestWait: longestWait * 0.6, longestWait: longestWait,
+            terminalPunctuationRatio: 1, hoverGrace: 0, hintFraction: 0.5
+        ))
+        let model = DiaryPageModel(recognizer: StubReader(), trigger: trigger, oracle: StubOracle(text: replyText), composer: .forSoul())
+        model.pageAreaChanged(PageRegion(left: 53.5, top: 53.5, width: 951 - 53.5 - 137.5, height: 669 - 53.5 - 87.5))
+        model.foldChanged(spread.fold)
+        model.facingColumnsChanged(ReplyComposer.facingColumns(spread: spread, safeTop: 0, safeBottom: 34, safeTrailing: 84))
+        return model
+    }
+
+    /// 合上是句号：还在等你写完的那一轮，合上的那一刻就交出去，不用等停笔的时长走完。
+    @MainActor
+    func testClosingTheBookCommitsPendingWriting() async throws {
+        let model = waitingModel(longestWait: 30)
+        model.postureChanged(.flat)
+        model.strokeFinished(writing(from: 100))
+        XCTAssertEqual(model.phase, .waiting)
+        model.postureChanged(.closed)
+        for _ in 0 ..< 200 where model.phase != .replying { try await Task.sleep(for: .milliseconds(10)) }
+        XCTAssertEqual(model.phase, .replying, "合上没有把这一轮交出去")
+        // 他按你写字时那张对开排（隔着书脊写在右页），哪怕屏幕已经换成了外屏。
+        model.facingColumnsChanged(nil)
+        XCTAssertGreaterThan(try replyRegion(model).left, 495.5)
+    }
+
+    /// 半合着是在翻看：停笔多久都不成页；回到摊平，等待从头算，然后照常成页。
+    @MainActor
+    func testAjarNeverCommitsAfterAPause() async throws {
+        let model = waitingModel(longestWait: 0.5)
+        model.postureChanged(.ajar)
+        model.strokeFinished(writing(from: 100))
+        try await Task.sleep(for: .seconds(1.2))
+        XCTAssertEqual(model.phase, .waiting, "半合着时不该成页")
+        model.postureChanged(.flat)
+        for _ in 0 ..< 300 where !model.phase.isCommitted { try await Task.sleep(for: .milliseconds(10)) }
+        XCTAssertTrue(model.phase.isCommitted, "回到摊平以后应该照常成页：\(model.phase)")
+    }
 }

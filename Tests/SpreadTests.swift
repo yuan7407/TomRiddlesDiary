@@ -51,7 +51,7 @@ nonisolated final class SpreadTests: XCTestCase {
     func testOnlyFlatAllowsCommitAndOnlyClosingForcesIt() {
         XCTAssertTrue(BookPosture.flat.allowsCommitAfterPause)
         XCTAssertFalse(BookPosture.ajar.allowsCommitAfterPause, "半合着是在翻旧页，这时停笔不该成页")
-        XCTAssertFalse(BookPosture.closed.allowsCommitAfterPause)
+        XCTAssertTrue(BookPosture.closed.allowsCommitAfterPause, "外屏翻开封面以后照样在外屏上写")
         XCTAssertTrue(BookPosture.closed.commitsPendingWritingOnEntry, "合上就是句号")
         XCTAssertFalse(BookPosture.ajar.commitsPendingWritingOnEntry)
         XCTAssertFalse(BookPosture.flat.commitsPendingWritingOnEntry)

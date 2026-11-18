@@ -51,6 +51,8 @@ struct DiaryPageView: View {
     @State private var openingHintShown = false
     /// 外屏的封面盖不盖着（计划 S 组）。规则全在 `CoverState`。
     @State private var cover = CoverState()
+    /// 他写字时手上沙沙的触感（计划 P10）。
+    @State private var haptics = WritingHaptics()
     @Environment(\.scenePhase) private var scenePhase
 
     /// 开场白（他的话，在 Persona.json）。读一次就够：人设在一次运行里不会变。
@@ -198,6 +200,7 @@ struct DiaryPageView: View {
                 })
                 .onBookPostureChange { new in
                     cover.postureChanged(from: posture, to: new)
+                    model.postureChanged(new)
                     posture = new
                     #if DEBUG
                     print("── 合页 ── 姿态：\(new)")
@@ -228,6 +231,15 @@ struct DiaryPageView: View {
         // 纸外的求助条（决策 67）：盖在纸上面、普通系统样式，你点「知道了」就收起。
         .overlay(alignment: .bottom) {
             if model.needsCare { CareSlipView { model.dismissCare() }.padding(16) }
+        }
+        // 他一开始写，手上就有沙沙的触感；被你落笔打断、写完、沉下去时停（计划 P10）。
+        // 合着本子时他接着写，触感也照样有——这是合上时唯一能感觉到他在写的东西。
+        .onChange(of: model.reply?.playback) { _, playback in
+            if case .playing(let since)? = playback, let reply = model.reply {
+                haptics.play(reply.sequence, from: (ContinuousClock.now - since).inSeconds)
+            } else {
+                haptics.stop()
+            }
         }
         // 切到后台、锁屏：回来时是封面（用户 2026-11-18 定）。
         .onChange(of: scenePhase) { _, phase in
