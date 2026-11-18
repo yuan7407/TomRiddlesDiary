@@ -108,10 +108,20 @@ nonisolated struct ChatCompletionsOracle: OracleProvider {
                 reminder = WrittenLanguage.englishRetryReminder
                 continue
             }
-            return OracleReply(text: reading.said, heard: reading.heard, mood: reading.mood, needsCare: reading.needsCare)
+            return OracleReply(text: reading.said, heard: reading.heard, mood: reading.mood,
+                               needsCare: reading.needsCare, name: reading.name)
         }
         // 上面的循环两条路径都会 return 或 throw，走不到这里。
         throw OracleFailure.couldNotReach(detail: "重试逻辑走到了不可能的分支")
+    }
+
+    /// 把更早的对话压成「他记得的事」（计划 K4）。用记事的那段说明代替人设：这不是他在说话。
+    func condenseMemory(previous: String?, turns: [OracleTurn]) async throws -> String {
+        let raw = try await askOnce(MemoryPrompt.userContent(previous: previous, turns: turns), image: nil,
+                                    reminder: nil, system: MemoryPrompt.system)
+        let condensed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !condensed.isEmpty else { throw OracleFailure.couldNotReach(detail: "记忆压出来是空的") }
+        return condensed
     }
 
     // MARK: 内部
@@ -119,7 +129,7 @@ nonisolated struct ChatCompletionsOracle: OracleProvider {
     /// 说漏身份之后重问时的提醒。
     static let identityReminder = "刚才那次回答里出现了模型名或技术身份。重新答一次，只用你在这本日记里的身份。"
 
-    private func askOnce(_ text: String, image: Data?, reminder: String?) async throws -> String {
+    private func askOnce(_ text: String, image: Data?, reminder: String?, system: String? = nil) async throws -> String {
         guard let url = endpoint.chatURL else {
             throw OracleFailure.couldNotReach(detail: "端点配置拼不出合法地址")
         }
@@ -128,7 +138,7 @@ nonisolated struct ChatCompletionsOracle: OracleProvider {
         httpRequest.httpMethod = "POST"
         httpRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
         httpRequest.setValue("Bearer \(endpoint.apiKey)", forHTTPHeaderField: "Authorization")
-        httpRequest.httpBody = try body(for: text, image: image, reminder: reminder)
+        httpRequest.httpBody = try body(for: text, image: image, reminder: reminder, system: system)
 
         let (data, response) = try await transport.send(httpRequest)
 
@@ -145,7 +155,7 @@ nonisolated struct ChatCompletionsOracle: OracleProvider {
 
     /// 请求体。有图时用户消息是 OpenAI 兼容的内容块数组：一段文字 + 一张 base64 内嵌的 PNG
     /// （DeepSeek 的 Chat Completions 接受这种格式，2026-11-17 用合成测试图真实请求确认，见 MEMORY）。
-    func body(for text: String, image: Data?, reminder: String? = nil) throws -> Data {
+    func body(for text: String, image: Data?, reminder: String? = nil, system: String? = nil) throws -> Data {
         let userContent: Any
         if let image {
             userContent = [
@@ -156,7 +166,8 @@ nonisolated struct ChatCompletionsOracle: OracleProvider {
             userContent = text
         }
         var messages: [[String: Any]] = [
-            ["role": "system", "content": systemPrompt],
+            // 平常是人设；压记忆时换成记事的说明（`MemoryPrompt`）。
+            ["role": "system", "content": system ?? systemPrompt],
             ["role": "user", "content": userContent],
         ]
         // 重试时额外提醒一句。不改 system prompt——那样两次请求就不是同一个实验了。

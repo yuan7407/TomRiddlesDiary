@@ -28,7 +28,6 @@ nonisolated final class SpineRoundTests: XCTestCase {
                 unavailable: [], systemProvidesRecognition: true
             ))
         }
-        func availability() async -> RecognitionAvailability { await recognize(PKDrawing()).availability }
     }
 
     /// 一段 30 字上下的回应：原型的长度上限附近，最考验小屏。
@@ -129,5 +128,21 @@ nonisolated final class SpineRoundTests: XCTestCase {
             let model = await round(writingFrom: 60, outerScreen: true, reply: text)
             XCTAssertEqual(model.phase, .replying, "「\(text)」外屏上整轮失败了：\(model.phase)")
         }
+    }
+
+    /// 计划 S6：外屏翻开以后他先开口——两句写在页顶，下面替你划一道线，线下是提示，全在纸上。
+    @MainActor
+    func testOpeningOnTheOuterScreen() async throws {
+        let model = DiaryPageModel(recognizer: StubReader(), oracle: StubOracle(text: replyText), composer: .forSoul())
+        let page = PageRegion(left: 37.3, top: 37.3, width: 466 - 37.3 * 2 - 84, height: 678 - 37.3 * 2 - 34)
+        model.pageAreaChanged(page)
+        await model.openBook(lines: "你来了。\n怎么称呼你？", spreadHeight: 678)
+        let reply = try XCTUnwrap(model.reply, "外屏上没开场")
+        let box = try XCTUnwrap(PageRegion.covering(reply.sequence.polylines))
+        XCTAssertGreaterThanOrEqual(box.left, page.left - 1)
+        XCTAssertLessThanOrEqual(box.right, page.right + 1, "开场写出了纸外")
+        let hint = try XCTUnwrap(model.openingHintPoint)
+        XCTAssertLessThan(hint.y, page.bottom)
+        XCTAssertGreaterThan(hint.y, box.top, "提示应该在他那两句下面")
     }
 }

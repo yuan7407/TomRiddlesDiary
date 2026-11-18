@@ -153,16 +153,6 @@ final class DiaryPageModel {
     /// 最近一次识别结果。含语言可用性——「本机没有中文模型」和「认不出」必须分开。
     private(set) var recognition: HandwritingRecognition?
 
-    /// 本机的识别语言状况，**在你落笔之前就查好**（计划 E4b）。
-    ///
-    /// 为什么要提前查而不是等识别完再说：缺语言模型时识别器不会返回空，
-    /// 它会把你的笔画硬塞进它手上有的语言里，吐出一串看起来正常的垃圾
-    /// （实测写「你好」得到 `15.47`）。而要判断「这几笔本来是中文」，
-    /// 你得先有中文模型——这是个死循环，事后过滤不掉。
-    /// 所以唯一诚实的做法是在你开始写之前就告诉你：这台设备读不出哪些语言。
-    ///
-    /// nil 表示还没查完（查询要跨进程问系统，不是瞬时的）。
-    private(set) var recognitionAvailability: RecognitionAvailability?
 
     private(set) var phase: DiaryPagePhase = .nothingNew
 
@@ -209,6 +199,8 @@ final class DiaryPageModel {
     private let trigger: PageCommitTrigger
     private let oracle: OracleProvider?
     private let composer: ReplyComposer
+    /// 他记得的东西（计划 K 组）。界面要读称呼（开场白）和问题（印在纸上），所以不是 private。
+    let memory: SoulMemory
 
     /// 最后一次抬笔的时刻，单调时钟。nil 表示笔正在纸上或还没写过。
     private var lastLift: ContinuousClock.Instant?
@@ -232,13 +224,15 @@ final class DiaryPageModel {
         recognizer: HandwritingReading = HandwritingRecognizer(),
         trigger: PageCommitTrigger = PageCommitTrigger(),
         oracle: OracleProvider? = DiaryPageModel.defaultOracle,
-        composer: ReplyComposer = ReplyComposer()
+        composer: ReplyComposer = ReplyComposer(),
+        memory: SoulMemory = SoulMemory(vault: nil)
     ) {
         self.reader = reader
         self.recognizer = recognizer
         self.trigger = trigger
         self.oracle = oracle
         self.composer = composer
+        self.memory = memory
     }
 
     /// 这个构建默认用哪个魂。判断全在 `OracleAssembly` 里，这里只是转发。
@@ -358,15 +352,6 @@ final class DiaryPageModel {
         setPhase(.waiting)
         startRecognition(of: round)
         startCountdown()
-    }
-
-    /// 查一次本机的识别语言状况（计划 E4b）。
-    ///
-    /// 由界面在出现时调用。查询要跨进程问系统，所以是异步的；只查一次，
-    /// 因为「本机装了哪些手写模型」在一次运行里不会变。
-    func loadRecognitionAvailability() async {
-        guard recognitionAvailability == nil else { return }
-        recognitionAvailability = await recognizer.availability()
     }
 
     /// 悬停状态变化。只有支持悬停的硬件会调到这里。
@@ -675,9 +660,10 @@ final class DiaryPageModel {
 
         let spoken: OracleReply
         do {
+            let remembered = memory.remembered
             spoken = try await oracle.respond(to: OracleRequest(
                 text: text, strokeCount: strokeCount, manner: manner, handwriting: handwriting,
-                history: recentTurns, opening: recentTurns.isEmpty ? openingSaid : nil
+                history: remembered.turns, opening: openingSaid, name: remembered.name, summary: remembered.summary
             ))
         } catch let failure as OracleFailure {
             fallSilent(failure)
@@ -703,12 +689,12 @@ final class DiaryPageModel {
         // 他读到了什么、这句话的分量、要不要关照（R3 四行回答）。读到的那句印在他那页的页脚（P9）。
         heard = spoken.heard
         needsCare = spoken.needsCare
-        // 记下这一轮，下一轮他才接得上话（原型：只有读到了字的轮次才记）。
+        // 开场白只告诉他一次：这一轮已经带过了。
+        openingSaid = nil
+        // 记下这一轮，下一轮他才接得上话（原型：只有读到了字的轮次才记）；攒够了就请模型压一次（K4）。
         if let you = spoken.heard {
-            recentTurns.append(OracleTurn(you: you, him: spoken.text))
-            if recentTurns.count > InteractionSettings.oracleHistoryTurns {
-                recentTurns.removeFirst(recentTurns.count - InteractionSettings.oracleHistoryTurns)
-            }
+            memory.record(OracleTurn(you: you, him: spoken.text), name: spoken.name)
+            Task { [memory] in await memory.foldIfNeeded(using: oracle) }
         }
         #if DEBUG
         diagnosis?.heard = spoken.heard
@@ -717,9 +703,7 @@ final class DiaryPageModel {
         await writeOnPage(spoken.text)
     }
 
-    /// 最近几轮（你写的 + 他回的），问他时一起带上（计划 P9，见 `OracleRequest.history`）。只在内存里。
-    private(set) var recentTurns: [OracleTurn] = []
-    /// 开场时他写在纸上的话。第一轮问他时带上，让他知道自己已经开过口。
+    /// 这一次翻开时他写在纸上的话。翻开后第一次问他时带上，让他知道自己已经开过口；带过就清掉。
     private var openingSaid: String?
 
     /// 他认出你这一轮写的是什么（四行回答的「读到」）。新的一轮成页时清掉。
@@ -808,46 +792,84 @@ final class DiaryPageModel {
     ///   - lines: 他说的两行（`SoulPersona.Opening.lines`），中间换行。
     ///   - spreadHeight: 整张对开的高（页面点），用来定「纸高 0.25」和「纸高一半」。
     func openBook(lines: String, spreadHeight: Double) async {
-        guard !openingShown, let facingColumns, let writableArea,
+        guard !openingShown, let writableArea,
               reply == nil, settledReplies.isEmpty, phase == .nothingNew else { return }
         openingShown = true
 
-        let unit = PaperLook.pointsPerPrototypeUnit
-        let o = SoulHand.Opening.self
-        let anchor = PageRegion(left: facingColumns.trailing.left, top: spreadHeight * o.anchorTopOfHeight, width: 1, height: 1)
-        let foldRight = fold?.right ?? (facingColumns.spineX + PaperLook.foldWidthPoints / 2)
-        let lineStart = foldRight + o.lineInsetFromFold * unit
-        let lineY = spreadHeight * o.lineHeightOfHeight
-        let steps = Double(max(1, o.lineWobble.count - 1))
-        let line = Polyline(points: o.lineWobble.enumerated().map { index, wobble in
-            let u = Double(index) / steps
-            return Point2D(x: lineStart + u * o.lineLength * unit, y: lineY - u * o.lineRise * unit + wobble * unit)
-        })
-
-        let composed: ComposedReply
+        let opening: (composed: ComposedReply, hint: Point2D)
         do {
-            composed = try composer.composeAcrossSpine(
-                lines, facing: anchor, columns: facingColumns,
-                on: inkMap(writableArea: writableArea, glyphSize: HandwritingFeel.referenceGlyphHeightInPoints, includingFold: false),
-                seed: HandwritingFeel.defaultSeed, then: [line]
-            )
+            opening = if let facingColumns {
+                try composeSpreadOpening(lines, columns: facingColumns, page: writableArea, spreadHeight: spreadHeight)
+            } else {
+                try composeSinglePageOpening(lines, page: writableArea)
+            }
         } catch {
-            #if DEBUG
-            print("── 开场 ── 排不出来：\(error)")
-            #endif
+            // 开场白只有两句、纸是空的，排不出来就是排版有 bug：DEBUG 里直接停住，不悄悄跳过开场。
+            assertionFailure("── 开场 ── 排不出来：\(error)")
             return
         }
 
         // 先让纸静一下再开口（原型 1.1 秒）。等的时候你已经落笔了，就不开场。
-        try? await Task.sleep(for: .seconds(o.delay))
+        try? await Task.sleep(for: .seconds(SoulHand.Opening.delay))
         guard reply == nil, settledReplies.isEmpty, phase == .nothingNew else { return }
-        beginReply(composed.sequence)
+        beginReply(opening.composed.sequence)
         greetingOnPage = true
         openingSaid = lines
-        openingHintPoint = Point2D(x: lineStart + o.lineLength * unit / 2, y: lineY + o.hintBelowLine * unit)
+        openingHintPoint = opening.hint
         #if DEBUG
-        print("── 开场 ── 他先开口（\(composed.sequence.strokes.count) 笔，\(String(format: "%.1f", composed.sequence.totalDuration)) 秒）")
+        print("── 开场 ── 他先开口（\(opening.composed.sequence.strokes.count) 笔，\(String(format: "%.1f", opening.composed.sequence.totalDuration)) 秒）")
         #endif
+    }
+
+    /// 他那道线：从 `start` 往右 `length`，在 `y` 高度，往右上抬一点、起伏照原型。
+    private func openingLine(start: Double, y: Double, length: Double) -> Polyline {
+        let o = SoulHand.Opening.self
+        let unit = PaperLook.pointsPerPrototypeUnit
+        let steps = Double(max(1, o.lineWobble.count - 1))
+        return Polyline(points: o.lineWobble.enumerated().map { index, wobble in
+            let u = Double(index) / steps
+            return Point2D(x: start + u * length, y: y - u * o.lineRise * unit + wobble * unit)
+        })
+    }
+
+    /// 摊开的对开：他写在左页、和右页纸高 0.25 齐平，替你在右页纸高一半处划一道线（原型 startIntro）。
+    private func composeSpreadOpening(
+        _ lines: String, columns: FacingColumns, page: PageRegion, spreadHeight: Double
+    ) throws -> (composed: ComposedReply, hint: Point2D) {
+        let unit = PaperLook.pointsPerPrototypeUnit
+        let o = SoulHand.Opening.self
+        let anchor = PageRegion(left: columns.trailing.left, top: spreadHeight * o.anchorTopOfHeight, width: 1, height: 1)
+        let foldRight = fold?.right ?? (columns.spineX + PaperLook.foldWidthPoints / 2)
+        let lineStart = foldRight + o.lineInsetFromFold * unit
+        let lineY = spreadHeight * o.lineHeightOfHeight
+        let composed = try composer.composeAcrossSpine(
+            lines, facing: anchor, columns: columns,
+            on: inkMap(writableArea: page, glyphSize: HandwritingFeel.referenceGlyphHeightInPoints, includingFold: false),
+            seed: HandwritingFeel.defaultSeed, then: [openingLine(start: lineStart, y: lineY, length: o.lineLength * unit)]
+        )
+        return (composed, Point2D(x: lineStart + o.lineLength * unit / 2, y: lineY + o.hintBelowLine * unit))
+    }
+
+    /// 外屏只有一页（计划 S6）：他的两句写在页顶，下面隔一段替你划一道线，线下是那句印刷体提示。
+    /// 线的长度取原型的长度、但不超过页宽的 `singlePageLineShare`；线居中。
+    private func composeSinglePageOpening(_ lines: String, page: PageRegion) throws -> (composed: ComposedReply, hint: Point2D) {
+        let unit = PaperLook.pointsPerPrototypeUnit
+        let o = SoulHand.Opening.self
+        let map = inkMap(writableArea: page, glyphSize: HandwritingFeel.referenceGlyphHeightInPoints)
+        // 先排一次字，知道字写到多低，线才知道画在哪。
+        let text = try composer.composeOnSinglePage(lines, below: nil, page: page, on: map, seed: HandwritingFeel.defaultSeed)
+        let length = min(o.lineLength * unit, page.width * o.singlePageLineShare)
+        let lineStart = page.left + (page.width - length) / 2
+        let lineY = text.placement.region.bottom + o.singlePageLineBelowText * unit
+        let hint = Point2D(x: lineStart + length / 2, y: lineY + o.hintBelowLine * unit)
+        guard hint.y < page.bottom else {
+            throw ReplyPlacementFailure.noRoomOnThisPage
+        }
+        let composed = try composer.composeOnSinglePage(
+            lines, below: nil, page: page, on: map, seed: HandwritingFeel.defaultSeed,
+            then: [openingLine(start: lineStart, y: lineY, length: length)]
+        )
+        return (composed, hint)
     }
 
     /// 把魂说的话装配成笔画并开始逐笔写。

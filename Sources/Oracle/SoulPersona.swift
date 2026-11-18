@@ -55,11 +55,16 @@ nonisolated struct SoulPersona: Equatable, Sendable, Decodable {
         let askName: String
         let returning: String
 
-        /// 这一次翻开他写什么（原型 startIntro）：第一次来是「问候 + 问称呼」，来过的是「回来了 + 第二句」。
+        /// 这一次翻开他写什么（原型 startIntro）：还不知道你叫什么，就是「问候 + 问称呼」；
+        /// 知道了，就是「回来了，<称呼>」+ 第二句。`returning` 里的 `{称呼}` 换成你的称呼。
+        ///
+        /// 2026-11-18 起按「知不知道称呼」而不是「来过几次」：称呼存在加密的记忆里（K2），
+        /// 来过却没告诉他称呼的人，下次他还会问。
         /// 两句之间换行。钟点落不进任何一组（数据写漏了）时返回 nil，由调用方不开场，而不是猜一句。
-        func lines(hour: Int, hasVisitedBefore: Bool) -> String? {
+        func lines(hour: Int, name: String?) -> String? {
             guard let group = byHour.first(where: { hour < $0.before }) else { return nil }
-            return hasVisitedBefore ? returning + "\n" + group.second : group.first + "\n" + askName
+            guard let name else { return group.first + "\n" + askName }
+            return returning.replacingOccurrences(of: "{称呼}", with: name) + "\n" + group.second
         }
     }
 }
@@ -111,24 +116,27 @@ nonisolated enum SoulSystemPrompt {
     · 他只写了英文（哪怕只有一个词，比如 hi），你就用英文回；他中英混写，你也照他的样子混写，英文词照他的拼写，不翻译。
     · 标点只用：。，、？！；：「」（）—… 以及英文的 , . ? ! ' :
     · 不要出现任何模型名、公司名或「语言模型」「AI 助手」这类说法。
+    · 请求开头可能有「他让你叫他」「你记得的事」「之前的几轮」：那是你自己记下的，不是他这一次写的。
+      称呼可以偶尔用，不要每句都叫；记得的事只在和他这一句有关时才提，不要为了显得记得而提。
     · 他写的话后面有时会跟一行括号，以「他下笔的样子」开头。那不是他写的字，是纸感觉到的：几笔、多久、快慢、停了多久。
       它只供你体会他的状态。先接住他写的话本身：他在骂你、冲你来、问你问题，或写了有分量的事，就回应那件事，不提下笔的样子。
       只在自然的时候偶尔提一句（比如「你写得很急」），不复述数字；之前几轮已经提过，就不要再提。
     """
 
-    /// 读图与回答格式（计划 R3，照搬网页原型 RULES 的读图与输出部分）。和人设无关，永远追加：
-    /// `ReadingReply` 按这四行解析，格式一变就解析不出来。
+    /// 读图与回答格式（计划 R3，照搬网页原型 RULES 的读图与输出部分；第五行「称呼」是 K2 加的）。
+    /// 和人设无关，永远追加：`ReadingReply` 按这五行解析，格式一变就解析不出来。
     static let readingProtocol = """
 
     ————
     他的话是手写在纸上的。请求里常附一张图：那就是他刚写的字（中文或英文，可能潦草，可能只有几个字）。
     · 先认出他写了什么，以图为准。手机自己认的字常认错，只作参考。
     · 认不出就老实说看不清，请他写大一点再写一遍，不要猜着答。
-    · 严格按下面四行输出，不要别的：
+    · 严格按下面五行输出，不要别的：
     读到：<照抄你认出的原文；认不出写 看不清>
     语气：<从 静、轻、重、暖 里选一个字，按他这句话的分量选>
     回应：<你写在纸上的话>
     关照：<他写了想伤害自己、活不下去的意思时写 是，否则写 否>
+    称呼：<他在这一句里告诉你怎么叫他（回答你问的称呼、「我叫…」「叫我…」）时只写那个称呼，否则写 无>
     """
 
     static func compose(_ persona: SoulPersona) -> String {

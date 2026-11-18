@@ -263,22 +263,6 @@ nonisolated final class DiaryPageModelTests: XCTestCase {
         XCTAssertEqual(model.reading?.polylines.count, 2, "读到的应该只有新写的两笔，不含已收下的三笔")
     }
 
-    // MARK: E4b 落笔前告知识别能力
-
-    /// 识别能力必须能在**没有写任何东西之前**就查出来，否则「写之前告知」做不到。
-    @MainActor
-    func testRecognitionAvailabilityIsKnownBeforeAnyWriting() async {
-        let model = makeModel()
-        XCTAssertNil(model.recognitionAvailability, "还没查过")
-
-        await model.loadRecognitionAvailability()
-
-        let availability = model.recognitionAvailability
-        XCTAssertNotNil(availability, "查完之后必须有结论，不能是 nil 含糊过去")
-        XCTAssertEqual(model.phase, .nothingNew, "查询不该改变页面阶段")
-        XCTAssertEqual(availability?.requested, InteractionSettings.recognitionLanguages)
-    }
-
     // MARK: E3d 落笔中断
 
     @MainActor

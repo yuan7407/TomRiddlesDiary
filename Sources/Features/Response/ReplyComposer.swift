@@ -184,9 +184,10 @@ nonisolated struct ReplyComposer: Sendable {
         below writing: PageRegion?,
         page: PageRegion,
         on inkMap: PageInkMap,
-        seed: UInt64
+        seed: UInt64,
+        then extraStrokes: [Polyline] = []
     ) throws -> ComposedReply {
-        try compose(text, inColumn: page, slot: .singlePage, on: inkMap, seed: seed, wantedTops: { size in
+        try compose(text, inColumn: page, slot: .singlePage, on: inkMap, seed: seed, then: extraStrokes, wantedTops: { size in
             let gap = size * (SoulHand.lineSpacingRatio - 1)   // 一道行距的空：和行与行之间同一个空
             return (writing.map { [$0.bottom + gap] } ?? []) + [page.top]
         })

@@ -117,6 +117,14 @@ else
   fail=1
 fi
 
+# Data：他的记忆（记什么、怎么加密存）。只许 Foundation + CryptoKit + Security——
+# 存储不该知道界面长什么样，也要能在测试里脱离界面单独跑（2026-11-18 计划 K3）。
+if check_layer_imports "Sources/Data" "Foundation CryptoKit Security"; then
+  echo "  ✓ Data 只依赖 Foundation / CryptoKit / Security"
+else
+  fail=1
+fi
+
 echo "================================"
 if [ "$fail" = "0" ]; then
   echo "✓ 检查通过"

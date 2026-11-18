@@ -279,10 +279,6 @@ nonisolated final class DiaryBookTests: XCTestCase {
                 )
             )
         }
-
-        func availability() async -> RecognitionAvailability {
-            await recognize(PKDrawing()).availability
-        }
     }
 
     private struct StubOracle: OracleProvider {

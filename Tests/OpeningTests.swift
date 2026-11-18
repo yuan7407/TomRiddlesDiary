@@ -21,15 +21,15 @@ nonisolated final class OpeningTests: XCTestCase {
     func testEveryHourHasAGreeting() throws {
         let opening = try bundledOpening()
         for hour in 0 ..< 24 {
-            XCTAssertNotNil(opening.lines(hour: hour, hasVisitedBefore: false), "\(hour) 点开不了场")
+            XCTAssertNotNil(opening.lines(hour: hour, name: nil), "\(hour) 点开不了场")
         }
     }
 
     func testFirstVisitAsksYourNameAndReturningSaysWelcomeBack() throws {
         let opening = try bundledOpening()
-        XCTAssertEqual(opening.lines(hour: 14, hasVisitedBefore: false), "你来了。\n怎么称呼你？")
-        XCTAssertEqual(opening.lines(hour: 14, hasVisitedBefore: true), "你回来了。\n想写点什么？")
-        XCTAssertEqual(opening.lines(hour: 2, hasVisitedBefore: false), "这么晚了，还醒着。\n怎么称呼你？")
+        XCTAssertEqual(opening.lines(hour: 14, name: nil), "你来了。\n怎么称呼你？")
+        XCTAssertEqual(opening.lines(hour: 14, name: "Michael"), "你回来了，Michael。\n想写点什么？")
+        XCTAssertEqual(opening.lines(hour: 2, name: nil), "这么晚了，还醒着。\n怎么称呼你？")
     }
 
     @MainActor

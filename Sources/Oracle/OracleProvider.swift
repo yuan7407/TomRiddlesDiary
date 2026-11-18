@@ -34,7 +34,7 @@ nonisolated struct OracleRequest: Equatable, Sendable {
     ///
     /// 注意它可能是**错的**——缺语言模型时识别器会吐出看起来正常的垃圾
     /// （实测中文页面得到 `#31`）。这一层不做纠正，也做不了：
-    /// 要判断「这几笔本来是中文」得先有中文模型。用户在落笔前已经被告知过了（E4b）。
+    /// 要判断「这几笔本来是中文」得先有中文模型。所以 R3 起每一轮都附上笔迹图，以图为准，这一行只作参考。
     let text: String
 
     /// 这一轮写了几笔。
@@ -58,26 +58,33 @@ nonisolated struct OracleRequest: Equatable, Sendable {
     /// 与 AGENTS「只发送完成任务所需的最少数据」有张力，由用户明确选择承担（决策 82）。
     let handwriting: Data?
 
-    /// 最近几轮你写了什么、他回了什么（旧的在前，计划 P9，照网页原型 turns）。
+    /// 最近几轮你写了什么、他回了什么（旧的在前，计划 P9 / K，照网页原型 turns）。
     ///
     /// 为什么要带（2026-11-18 真机）：原来每一轮都是一次全新的提问，他不知道上一轮自己已经说过
     /// 「你写得很慢」，于是每一轮都说一遍。带上最近几轮，他才接得上话、也不会自己重复自己。
-    /// 发出去的是**他读到的字和他回的话**，不含笔迹图（图只发这一轮的）。最多几轮见
-    /// `InteractionSettings.oracleHistoryTurns`；只在内存里，App 退出就没了。
+    /// 发出去的是**他读到的字和他回的话**，不含笔迹图（图只发这一轮的）。
+    /// 带几轮、什么时候压进「他记得的事」见 `InteractionSettings.Memory`。
     let history: [OracleTurn]
 
-    /// 翻开本子时他先在纸上写的话（P6 开场）。只在第一轮、还没有历史时带上，让他知道自己已经开过口。
+    /// 这一次翻开本子时他先在纸上写的话（P6 开场）。翻开后第一次问他时带上，让他知道自己已经开过口。
     let opening: String?
 
-    /// `manner`、`handwriting`、`history`、`opening` 有默认值，原来只传文字和笔数的调用处不用改。
+    /// 你让他怎么叫你（K2）。nil = 还不知道。
+    let name: String?
+    /// 他记得的事：更早的对话压成的一段话（K4）。nil = 还没有。
+    let summary: String?
+
+    /// 除了文字和笔数，其余都有默认值，原来只传文字和笔数的调用处不用改。
     init(text: String, strokeCount: Int, manner: WritingManner? = nil, handwriting: Data? = nil,
-         history: [OracleTurn] = [], opening: String? = nil) {
+         history: [OracleTurn] = [], opening: String? = nil, name: String? = nil, summary: String? = nil) {
         self.text = text
         self.strokeCount = strokeCount
         self.manner = manner
         self.handwriting = handwriting
         self.history = history
         self.opening = opening
+        self.name = name
+        self.summary = summary
     }
 
     /// 发给模型的那段文字（图另外附）。放在 Oracle 层而不是某一个 provider 里，
@@ -87,13 +94,18 @@ nonisolated struct OracleRequest: Equatable, Sendable {
     /// 没图时：照旧只有他写的字。两种情况下，下笔的样子都另起一行附在后面。
     func userContent(text trimmed: String) -> String {
         var lines: [String] = []
-        // 之前的几轮在最前面（原型的顺序）：先知道聊到哪了，再看这一句。
+        // 他自己记下的东西在最前面：称呼、记得的事（K2、K4）。
+        if let name { lines.append("他让你叫他：\(name)") }
+        if let summary { lines.append("你记得的事（更早的对话，你自己记下的）：\(summary)") }
+        if name != nil || summary != nil { lines.append("") }
+        // 之前的几轮（原型的顺序）：先知道聊到哪了，再看这一句。
         if !history.isEmpty {
             lines.append("之前的几轮（旧的在前）：")
             for turn in history { lines.append("他写：\(turn.you)\n你回：\(turn.him)") }
             lines.append("")
-        } else if let opening, !opening.isEmpty {
-            lines.append("翻开本子时，你已经先在纸上写了：「\(opening.replacingOccurrences(of: "\n", with: ""))」")
+        }
+        if let opening, !opening.isEmpty {
+            lines.append("这一次翻开本子时，你已经先在纸上写了：「\(opening.replacingOccurrences(of: "\n", with: ""))」")
             lines.append("")
         }
         if handwriting != nil {
@@ -113,7 +125,7 @@ nonisolated struct OracleRequest: Equatable, Sendable {
 }
 
 /// 一轮对话：你写的（他读到的那句）和他回的。
-nonisolated struct OracleTurn: Equatable, Sendable {
+nonisolated struct OracleTurn: Codable, Equatable, Sendable {
     let you: String
     let him: String
 }
@@ -134,6 +146,8 @@ nonisolated struct OracleReply: Equatable, Sendable {
     var mood: String? = nil
     /// 他写了想伤害自己、活不下去的意思（「关照：是」）。为真时纸外弹出普通系统求助条（决策 67）。
     var needsCare: Bool = false
+    /// 你在这一句里告诉他怎么叫你（「称呼：…」那一行，K2）。nil = 这一句里没有。
+    var name: String? = nil
 }
 
 /// 魂接不上的原因。**每一种都必须能对用户说清楚**，所以每种都带一句人话。
@@ -196,6 +210,10 @@ nonisolated protocol OracleProvider: Sendable {
     ///
     /// 默认 false：真 provider 不需要关心这件事。
     var producesCannedReplies: Bool { get }
+
+    /// 把更早的几轮对话和原来记得的事压成一段新的「他记得的事」（计划 K4，用户 2026-11-18 定由模型来写）。
+    /// - Throws: `OracleFailure`。压不出来就如实抛错：调用方保留原样的对话，下一轮再压，不丢东西。
+    func condenseMemory(previous: String?, turns: [OracleTurn]) async throws -> String
 }
 
 /// 标 `nonisolated`：工程默认 actor 隔离是 MainActor，不标的话这个默认实现会被算成
@@ -204,6 +222,11 @@ nonisolated protocol OracleProvider: Sendable {
 /// provider 本来就该能在任意线程上被问话。
 nonisolated extension OracleProvider {
     var producesCannedReplies: Bool { false }
+
+    /// 默认不会压记忆：如实报「没接上」，不编一段记忆顶上（测试里的桩用这个）。
+    func condenseMemory(previous: String?, turns: [OracleTurn]) async throws -> String {
+        throw OracleFailure.notConfigured
+    }
 }
 
 /// 一次请求的参数。集中在 `InteractionSettings`，不散落在 provider 里（决策 4）。

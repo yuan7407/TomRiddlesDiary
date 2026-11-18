@@ -102,9 +102,25 @@ nonisolated enum InteractionSettings {
 
     // MARK: 问魂的请求参数（计划 E6d）
 
-    /// 问他时带上最近几轮对话（你写的 + 他回的）。5 照网页原型（turns 超过 5 轮就丢最旧的）。
-    /// 这是 AGENTS「上下文页数上限」的那个上限：只在内存里，App 退出就清空。
-    static let oracleHistoryTurns = 5
+    /// 他记得的事（计划 K 组，决策 84、86）。
+    ///
+    /// · 最近几轮原样带（`verbatimTurns`，5 照网页原型 turns）；
+    /// · 原样的攒到 `verbatimTurns + foldBatch` 轮，就把最旧的 `foldBatch` 轮交给模型压进「他记得的事」，
+    ///   于是每轮带的是「他记得的事 + 最近 5 到 9 轮」，中间不留空档；
+    /// · 「他记得的事」不超过 `summaryMaxCharacters` 字（约 200，K4 计划的量级；没有测量依据，
+    ///   看真机上记得准不准、请求慢不慢再调）。
+    /// 全部端侧加密存着，跨启动保留（K3）。用户 2026-11-18 定：默认开着、先不做开关和遗忘。
+    enum Memory {
+        static let verbatimTurns = 5
+        static let foldBatch = 5
+        static let summaryMaxCharacters = 200
+        /// 称呼最多几个字。超过的多半是模型把整句话当成了称呼，不收。
+        static let nameMaxCharacters = 24
+        /// 存在 App 的 Application Support 目录下的文件名，与钥匙串里那把钥匙的名字。
+        static let fileName = "soul-memory.sealed"
+        static let keychainService = "TomRiddlesDiary.memory"
+        static let keychainAccount = "memory-key"
+    }
 
     /// 一次 Oracle 请求的参数。
     static let oracleRequest = OracleRequestSettings(

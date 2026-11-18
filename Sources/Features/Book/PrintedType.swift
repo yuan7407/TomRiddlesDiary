@@ -9,7 +9,7 @@
 //  字体：思源宋体子集（决策 81），两个字重，`scripts/subset_print_font.py` 生成，SIL OFL 1.1
 //  （授权全文 `Resources/Fonts/OFL.txt`；原字体没有「保留字体名」条款，所以子集可以沿用原名）。
 //  启动时用 CoreText 注册到本进程，不写进 Info.plist：Info.plist 只挂在 Debug 配置上（决策 70），
-//  写进去 Release 就没有字了。注册失败时 SwiftUI 会回退到系统字体，所以失败要打日志，不能静默。
+//  写进去 Release 就没有字了。注册失败时 SwiftUI 会悄悄回退到系统字体，所以失败在 DEBUG 里直接停住。
 //
 //  压印的样子：先在右下偏一点的位置印一道白色亮边，再在上面压灰褐色的墨（原型 `printed()`）。
 //  定位按**基线**，和原型一致；SwiftUI 的 Text 只能按框定位，所以页眉页码用 Canvas 画、量出基线再放。
@@ -20,18 +20,22 @@ import SwiftUI
 
 @MainActor
 enum PrintedType {
-    /// 启动时调一次。重复调用无害（CoreText 会报「已注册」，按成功处理）。
+    /// 启动时调一次：印刷体两个字重 + 封面名牌的字（计划 S3）。重复调用无害（CoreText 会报「已注册」，按成功处理）。
+    ///
+    /// 找不到字体文件、或注册失败，是打包出了错：DEBUG 里直接停住（`assertionFailure`），
+    /// 不让 SwiftUI 悄悄换成系统字体、让人以为字体本来就长那样（2026-11-18 起，原来只打一行日志）。
     static func registerFonts() {
-        for name in PaperLook.Printed.fontFiles {
-            guard let url = Bundle.main.url(forResource: name, withExtension: "otf") else {
-                print("── 印刷体 ── 包里找不到 \(name).otf，系统说的话会退回系统字体")
+        let files = PaperLook.Printed.fontFiles.map { ($0, "otf") } + [(CoverLook.Plate.fontFile, "ttf")]
+        for (name, ext) in files {
+            guard let url = Bundle.main.url(forResource: name, withExtension: ext) else {
+                assertionFailure("── 字体 ── 包里找不到 \(name).\(ext)")
                 continue
             }
             var error: Unmanaged<CFError>?
             if !CTFontManagerRegisterFontsForURL(url as CFURL, .process, &error) {
                 let code = error.map { CFErrorGetCode($0.takeRetainedValue()) } ?? 0
                 if code != CTFontManagerError.alreadyRegistered.rawValue {
-                    print("── 印刷体 ── \(name) 注册失败（\(code)），系统说的话会退回系统字体")
+                    assertionFailure("── 字体 ── \(name) 注册失败（CoreText 错误 \(code)）")
                 }
             }
         }

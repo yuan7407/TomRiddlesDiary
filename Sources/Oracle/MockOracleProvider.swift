@@ -79,6 +79,11 @@ nonisolated struct MockOracleProvider: OracleProvider {
         return OracleReply(text: Self.cannedReplies[index])
     }
 
+    /// 写死的记忆：只说明压了几轮，不读内容（和写死的回应一样，一眼看得出是假的）。
+    func condenseMemory(previous: String?, turns: [OracleTurn]) async throws -> String {
+        "（写死的记忆，不是模型记的：又压了 \(turns.count) 轮）"
+    }
+
     /// 轮换游标。
     private actor Cursor {
         private var count = 0

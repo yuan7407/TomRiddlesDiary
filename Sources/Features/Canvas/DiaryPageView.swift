@@ -11,8 +11,8 @@
 //  当前真实状态（诚实说明，别对着界面猜）：
 //  你可以在纸上写字；停笔一会儿这一页会被收下、读懂（识别），交给魂（Oracle），
 //  魂的回应在你那句话旁边找空位逐笔写出来；写满了自动翻页（E3f）。
-//  纸上的非内容元素只有两类提示：「这台设备读不出哪些语言」（E4b：缺语言模型时
-//  识别器会吐出看起来正常的垃圾，只能事先告知）和「魂这次没能回应」的诚实说明。
+//  纸上的非内容元素只有印刷体的诚实说明：「他的记忆出了问题」（K3）和「魂这次没能回应」。
+//  外屏合着时最上面盖一张封面（计划 S 组，`BookCover`），翻开才是纸。
 //
 //  页边距从安全区内侧量起（2026-11-16，迁到 iPhone 时实测暴露）：
 //  纸本身铺满全屏（`.ignoresSafeArea()`），但可书写区域与提示文字都要避开
@@ -42,13 +42,16 @@ import SwiftUI
 struct DiaryPageView: View {
     // 魂写字用带节奏、带笔法、按意思换行的那一套装配（`ReplyComposer.forSoul()`）。
     // 在这里换而不是改 `DiaryPageModel` 的默认值：模型的测试守的是状态机，不该跟着手感一起变期望值。
-    @State private var model = DiaryPageModel(composer: .forSoul())
+    @State private var model = DiaryPageModel(composer: .forSoul(), memory: .onDevice())
     /// 合页姿态（`BookHinge` 报上来）。nil = 还没报，启动的头一瞬。
     @State private var posture: BookPosture?
     /// 系统报告的折缝。只有半开时才有（2026-11-17 实测），摊平时靠 `SpreadGeometry.resolve` 推断。
     @State private var reportedFold: PageRegion?
     /// 开场那句印刷体提示淡出来了没有（计划 P6）。
     @State private var openingHintShown = false
+    /// 外屏的封面盖不盖着（计划 S 组）。规则全在 `CoverState`。
+    @State private var cover = CoverState()
+    @Environment(\.scenePhase) private var scenePhase
 
     /// 开场白（他的话，在 Persona.json）。读一次就够：人设在一次运行里不会变。
     private static let opening = OracleAssembly.bundledPersona()?.opening
@@ -66,6 +69,10 @@ struct DiaryPageView: View {
                     posture: posture,
                     assumedFoldWidth: PaperLook.foldWidthPoints
                 )
+                let showsCover = cover.showsCover(posture: posture, isPortrait: geometry.size.height > geometry.size.width)
+                // 他什么时候先开口：纸露出来了才开（外屏要先翻开封面）；摊开的内屏还要等两页的栏位算好，
+                // 否则会在内屏上按单页排开场。
+                let openingReady = !showsCover && posture != nil && (posture == .closed || model.facingColumns != nil)
                 ZStack(alignment: .topLeading) {
                     // 纸（纸纹 + 书脊阴影）在最底下；画布是透明的，只承接笔迹（计划 P1）。
                     PaperBackground(spread: spread)
@@ -124,19 +131,21 @@ struct DiaryPageView: View {
                     }
 
                     #if DEBUG
-                    // R0 识别诊断：这一轮交了几笔、手机认出什么、用了多久、他读到什么。只在 DEBUG。
+                    // R0 识别诊断 + 记忆（K）：这一轮交了几笔、手机认出什么、他读到什么；他记得什么。只在 DEBUG。
+                    // 放在页顶日期下面：页脚是「他读到的是」那一行，放在下面会叠在一起（2026-11-18 真机截图）。
                     if let line = model.diagnosis?.line {
-                        Text(line)
+                        Text(line + "\n" + model.memory.debugLine)
                             .font(.system(size: 10, design: .monospaced))
                             .foregroundStyle(.red.opacity(0.7))
-                            .padding(insets)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+                            .padding(noticeInsets(insets, spread: spread, size: geometry.size, belowDateWithSafeTop: screen.safeAreaInsets.top))
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                             .allowsHitTesting(false)
                     }
                     #endif
 
-                    if let notice = recognitionNotice, model.phase == .nothingNew {
-                        pageNotice(notice, insets: noticeInsets(insets, spread: spread, size: geometry.size, belowDateWithSafeTop: screen.safeAreaInsets.top), alignment: .top)
+                    if let problem = model.memory.problem {
+                        // 记忆出了问题：如实印出来（K3），印在页顶日期下面。
+                        pageNotice(problem.sentence, insets: noticeInsets(insets, spread: spread, size: geometry.size, belowDateWithSafeTop: screen.safeAreaInsets.top), alignment: .top)
                     }
 
                     if case .soulSilent(let failure) = model.phase {
@@ -161,7 +170,17 @@ struct DiaryPageView: View {
                         )
                     }
                     #endif
+
+                    // 外屏的封面盖在最上面（计划 S 组）：盖着时纸上什么都碰不到、写不了字。
+                    if showsCover {
+                        BookCoverView(
+                            closesWithMotion: cover.closesWithMotion,
+                            onOpened: { cover.opened() },
+                            onCloseMotionPlayed: { cover.closeMotionPlayed() }
+                        )
+                    }
                 }
+                .statusBarHidden(showsCover)
                 // 可书写区域由这里算（页边距是视图尺寸的函数，模型不认识视图）。
                 // 没有它魂定不了落点，所以一有尺寸就要报过去。
                 .animation(pageTurn, value: model.pageTurnCount)
@@ -178,6 +197,7 @@ struct DiaryPageView: View {
                     Color.clear.onChange(of: reported.fold, initial: true) { _, fold in reportedFold = fold }
                 })
                 .onBookPostureChange { new in
+                    cover.postureChanged(from: posture, to: new)
                     posture = new
                     #if DEBUG
                     print("── 合页 ── 姿态：\(new)")
@@ -188,14 +208,12 @@ struct DiaryPageView: View {
                                                           safeTrailing: screen.safeAreaInsets.trailing), initial: true) { _, columns in
                     model.facingColumnsChanged(columns)
                 }
-                // 翻开本子他先开口（计划 P6）：两页的栏位就绪（摊开的内屏）才开场，一次启动一次。
-                .task(id: model.facingColumns != nil) {
-                    guard model.facingColumns != nil, !model.openingShown, let opening = Self.opening else { return }
-                    let defaults = UserDefaults.standard
-                    let visits = defaults.integer(forKey: SoulHand.Opening.visitsKey)
-                    defaults.set(visits + 1, forKey: SoulHand.Opening.visitsKey)
+                // 翻开本子他先开口（计划 P6、S6）：纸露出来才开，一次启动一次。
+                // 知道你的称呼就说「你回来了，<称呼>」，不知道就问（称呼存在记忆里，K2）。
+                .task(id: openingReady) {
+                    guard openingReady, !model.openingShown, let opening = Self.opening else { return }
                     let hour = Calendar.current.component(.hour, from: Date())
-                    guard let lines = opening.lines(hour: hour, hasVisitedBefore: visits > 0) else { return }
+                    guard let lines = opening.lines(hour: hour, name: model.memory.remembered.name) else { return }
                     await model.openBook(lines: lines, spreadHeight: geometry.size.height)
                 }
                 .onChange(of: spread.fold, initial: true) { _, fold in
@@ -211,8 +229,11 @@ struct DiaryPageView: View {
         .overlay(alignment: .bottom) {
             if model.needsCare { CareSlipView { model.dismissCare() }.padding(16) }
         }
+        // 切到后台、锁屏：回来时是封面（用户 2026-11-18 定）。
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .background { cover.leftTheApp() }
+        }
         .accessibilityLabel("日记页")
-        .task { await model.loadRecognitionAvailability() }
     }
 
     /// 翻页动画的时长与曲线（计划 E3f，决策 33）。
@@ -291,35 +312,12 @@ struct DiaryPageView: View {
         return sentence
     }
 
-    /// 落笔**之前**要告诉用户的话，没有则为 nil（计划 E4b）。
+    /// 纸上的一行说明文字（印刷体，系统说的）。
     ///
-    /// 为什么必须写在前面而不是等识别完再说：缺语言模型时识别器**不返回空**，
-    /// 它会把笔画硬塞进它手上有的语言里，吐出一串看起来正常的垃圾
-    /// （实测写「你好」得到 `15.47`）。而要判断「这几笔本来是中文」得先有中文模型
-    /// ——事后过滤不掉。等接上 Oracle 之后，魂会一本正经地回应那串垃圾，
-    /// 而你只会觉得 AI 很傻，完全查不到是输入端就错了。
+    /// 两种提示分开上下摆：记忆出问题的在上，魂接不上的在下。同一个位置会互相盖掉。
     ///
-    /// 两种情况必须分开说，因为解决办法完全不同：
-    /// 系统太旧要升级系统；缺语言模型是这台设备本身读不出那种文字。
-    private var recognitionNotice: String? {
-        guard let availability = model.recognitionAvailability else { return nil }
-
-        if !availability.systemProvidesRecognition {
-            return "这台设备的系统还没有手写识别（需要 iOS \(HandwritingRecognizer.requiredSystemVersion)）。"
-                + "写下的字暂时读不出来。"
-        }
-        guard !availability.unavailable.isEmpty else { return nil }
-        return "这台设备读不出\(describeNames(availability.unavailable))手写。写了也会被认成别的字符，而且不会报错。"
-    }
-
-    /// 纸上的一行说明文字。
-    ///
-    /// 为什么识别提示不禁止书写：能读的语言照样能用（模拟器上英文就是好的），
-    /// 一句话说清代价比直接不让人写更有用。
-    /// 识别提示只在这一轮还没落笔时显示（`.nothingNew`），因为它的全部价值就是「写之前」。
-    ///
-    /// 两种提示分开上下摆：识别提示在上（关于「你要写的」），魂的提示在下
-    /// （关于「已经写完的」）。同一个位置会互相盖掉。
+    /// 2026-11-18 删掉了原来页顶的「这台设备读不出某种语言的手写」（计划 E4b）：R3 起每一轮都把笔迹图交给
+    /// 模型读，手机认不认得出都不影响他读到你写的字，那句提示已经不是真的了。
     private func pageNotice(
         _ text: String,
         insets: EdgeInsets,
@@ -335,16 +333,6 @@ struct DiaryPageView: View {
             .allowsHitTesting(false)
     }
 
-    /// 把语言代码换成当前系统语言下的语言名。
-    /// 不在代码里写「中文」这种字面量——请求的语言列表是配置项，写死名字迟早对不上。
-    private func describeNames(_ languages: [Locale.Language]) -> String {
-        let names = languages.compactMap { language in
-            language.languageCode.flatMap {
-                Locale.current.localizedString(forLanguageCode: $0.identifier)
-            }
-        }
-        return names.isEmpty ? "部分语言的" : names.joined(separator: "、")
-    }
 }
 
 // MARK: - Preview

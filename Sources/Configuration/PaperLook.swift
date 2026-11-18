@@ -150,8 +150,8 @@ nonisolated enum PaperLook {
         static let outerMargin: Double = 46
         static let dateBaselineFromTop: Double = 44
         static let folioBaselineFromBottom: Double = 30
-        /// 纸上提示的顶边比日期基线再低多少（原型单位）。**原型里没有这条提示**（它是 App 自己的
-        /// 「读不出哪种文字」，计划 E4b），所以这个数不是照搬的：取日期字号的约两倍，让中间空出一行，
+        /// 纸上提示的顶边比日期基线再低多少（原型单位）。**原型里没有这条提示**（它是 App 自己的说明，
+        /// 现在是「记忆出了问题」与 DEBUG 诊断行），所以这个数不是照搬的：取日期字号的约两倍，让中间空出一行，
         /// 2026-11-17 在 Duo 模拟器截图上目测定的。
         static let noticeGapBelowDate: Double = 22
     }

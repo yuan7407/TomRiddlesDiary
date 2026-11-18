@@ -32,7 +32,7 @@
 import SwiftUI
 
 extension View {
-    /// 合页姿态变了就告诉调用方。没有合页的设备只会在出现时收到一次 `.flat`。
+    /// 合页姿态变了就告诉调用方。iOS 27.1 起由系统报（启动时就报一次）；更早的系统没有合页接口，出现时报一次 `.flat`。
     func onBookPostureChange(_ action: @escaping (BookPosture) -> Void) -> some View {
         modifier(BookPostureReader(action: action))
     }
@@ -44,11 +44,12 @@ private struct BookPostureReader: ViewModifier {
 
     func body(content: Content) -> some View {
         if #available(iOS 27.1, *) {
+            // 不在出现时先猜一个「摊平」：系统在启动时就会报一次真的合页状态（2026-11-18 在 Duo 模拟器上
+            // 实测，启动即收到 fullyOpen）。先猜的话，在外屏启动会先当成摊平、闪一下纸再盖上封面。
             content
                 .onHingeChange { _, context in
                     report(Self.posture(of: context.hinge, previous: posture))
                 }
-                .onAppear { if posture == nil { report(.flat) } }
         } else {
             content.onAppear { if posture == nil { report(.flat) } }
         }

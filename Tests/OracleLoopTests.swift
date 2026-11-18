@@ -66,10 +66,6 @@ nonisolated final class OracleLoopTests: XCTestCase {
                 )
             )
         }
-
-        func availability() async -> RecognitionAvailability {
-            await recognize(PKDrawing()).availability
-        }
     }
 
     private var pageArea: PageRegion {

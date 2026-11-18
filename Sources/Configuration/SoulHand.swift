@@ -90,7 +90,9 @@ nonisolated enum SoulHand {
         static let hintFade: TimeInterval = 1
         /// 系统说的话，不进人设。
         static let hintText = "在这一页上手写。停笔，他会读。"
-        /// 来过几次（只有一个计数，不含任何内容）存在这个键下。原型用 localStorage 的同名键。
-        static let visitsKey = "duikai.visits"
+        /// 外屏只有一页时（计划 S6）：线画在他那两句下面隔多远（原型单位），线最长占页宽的多少。
+        /// 原型没有单页的版式，这两个数是在外屏上看着定的，未经真机验证。
+        static let singlePageLineBelowText: Double = 70
+        static let singlePageLineShare: Double = 0.7
     }
 }

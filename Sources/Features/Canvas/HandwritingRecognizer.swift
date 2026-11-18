@@ -176,7 +176,6 @@ nonisolated protocol HandwritingReading: Sendable {
     func recognize(_ drawing: PKDrawing) async -> HandwritingRecognition
     /// 成页时的识别：可以多等一会儿，换来认完的结果。默认就是 `recognize`。
     func recognizeCarefully(_ drawing: PKDrawing) async -> HandwritingRecognition
-    func availability() async -> RecognitionAvailability
 }
 
 extension HandwritingReading {

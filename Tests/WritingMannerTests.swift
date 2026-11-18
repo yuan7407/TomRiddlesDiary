@@ -144,14 +144,15 @@ nonisolated final class WritingMannerTests: XCTestCase {
         }
     }
 
-    /// 最近几轮在最前面（旧的在前），开场白只在没有历史时带。
-    func testHistoryComesFirstAndOpeningOnlyWithoutHistory() {
+    /// 记得的东西在最前面：称呼、记得的事、最近几轮（旧的在前）、这一次的开场白，然后才是这一句。
+    func testRememberedThingsComeFirst() {
         let turns = [OracleTurn(you: "hello", him: "Hello. Who is this?")]
-        let withHistory = OracleRequest(text: "x", strokeCount: 1, history: turns, opening: "你来了。").userContent(text: "Harry.")
-        XCTAssertTrue(withHistory.hasPrefix("之前的几轮（旧的在前）：\n他写：hello\n你回：Hello. Who is this?"))
-        XCTAssertFalse(withHistory.contains("你来了"))
-        let first = OracleRequest(text: "x", strokeCount: 1, opening: "你来了。\n怎么称呼你？").userContent(text: "Harry.")
-        XCTAssertTrue(first.hasPrefix("翻开本子时，你已经先在纸上写了：「你来了。怎么称呼你？」"))
+        let content = OracleRequest(text: "x", strokeCount: 1, history: turns, opening: "你回来了，Harry。\n想写点什么？",
+                                    name: "Harry", summary: "他说过他叫 Harry。").userContent(text: "Again.")
+        XCTAssertTrue(content.hasPrefix("他让你叫他：Harry\n你记得的事（更早的对话，你自己记下的）：他说过他叫 Harry。\n\n之前的几轮（旧的在前）：\n他写：hello\n你回：Hello. Who is this?"))
+        XCTAssertTrue(content.contains("这一次翻开本子时，你已经先在纸上写了：「你回来了，Harry。想写点什么？」"))
+        let nothingRemembered = OracleRequest(text: "x", strokeCount: 1).userContent(text: "你好")
+        XCTAssertEqual(nothingRemembered, "你好")
     }
 
     func testSystemPromptExplainsWhatTheBracketedLineIs() {
