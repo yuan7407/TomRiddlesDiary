@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-- **阶段（2026-11-16）**：产品载体从 iPad 换成折叠屏 **iPhone Duo**（「对开」设计，决策 78）。迁移在分支 `feature/duikai-merge-and-duo`：M1 打对开代码包、M2 切 iPhone、M4 恢复 SoulPersonaTests、M5a 合页姿态 DEBUG 日志已提交；摊开状态的合页与折缝待在模拟器上核对，然后开 PR。
+- **阶段（2026-11-18）**：产品载体是折叠屏 **iPhone Duo**（决策 78），分支 `feature/duikai-merge-and-duo`（还没开 PR）。已在真机上跑：P1–P4、P6、R0–R3 做完。**下一步**：S 组外屏封面（先等 S0 的四个问题）、K 组记忆（先等 K0），其余见 README 的 P 组。
 - **整条链路已通**：写字 → 停笔成页 → 识别这一轮 → 魂（DeepSeek V4 Flash，2026-09-01 实测四轮真对话）→ 定落点 → 排笔画 → 手绘化 → 逐笔重播 → 落笔中断；写满自动翻页（E3f）。对开包新加：楷书笔法（`BrushShaping`）、说话节奏（`ReplyCadence`）、湿墨变干（`InkAge` + 三种墨色）、断行规则（E2a，`LineBreaking`）、「下笔的样子」随请求发给魂（`WritingManner`，决策 79）。这四样可见效果**还没人在纸上亲眼看过**。**未接入**：加密存储、安全后端、TestFlight。
 - **写好但没有界面在用的对开积木**：`SpreadGeometry`/`BookPosture`/`BookHinge`（版面与合页）、`InkRun`/`InkTransfer`/`ReadingSweep`（你的墨被抽走、读的时候的湿痕）、`WritingHaptics`（触感）、开场白（只有网页原型）。接进首屏前要先定待决定第 1 条。
 - **引擎**：`StrokePipeline → StrokeHumanizer → StrokeReplayTimeline`，入口只吃 `[Polyline]`；生产者是 `PencilStrokeReader`（用户手写）与 `GlyphStrokeLayout`（字形笔顺）。渲染层 `Features/Response/HandwritingReplayView`，入参 `ReplayPlayback` 三态，坐标 1:1。
@@ -53,6 +53,7 @@
 | 78+79 | 设备范围改为**只要 iPhone（iPhone Duo）**（2026-11-16 用户拍板，**取代决策 23**）；「下笔的样子」发给模型（2026-11-16 用户拍板） | `TARGETED_DEVICE_FAMILY = 1`，清掉 iPad 方向设置与「iPadOS」文案。正在做（迁移计划 M0–M5，分支 `feature/duikai-merge-and-duo`）；对开包的 `WritingManner` 照默认发送（只有笔数、快慢、停顿，不含文字）；关掉只需把 `DiaryPageModel.commit()` 里的 `manner` 设成 nil | 产品载体从 iPad 换成折叠屏 iPhone Duo（对开设计）。不保留 iPad：以后要加回只是改一个设置，现在同时维护两类设备只会多一倍要测的东西；这是 AGENTS.md 里「字迹指标作情绪信号」的本意；用户知情并接受它比「只发识别文字」多一项数据 |
 | 80+81 | 网页原型是规格源（2026-11-17 用户拍板「规则冲突以网页版 artifact 为准」）；印刷体用思源宋体子集 | 原型 artifact `17m7Vat37j45NLc8NX7Sab`，计划见 README 的 P 组。被原型推翻：决策 18（魂的字可擦 → 字不删只沉进纸里，没有橡皮）、33+76 与 65（写满翻页、每段留在页上 → 一个对开只放一轮，上一段沉下去进旧页）、57–59（同页挨着放 → 隔着书脊写在对面、与你那句齐平）、61 的 25–40 字（→ 12–30 字）。原型里的替身按真机做（合页、CoreMotion、触感、系统识别、按节奏成页）。印刷体 Noto Serif SC（SIL OFL）按 GB2312 裁子集，子集外的字由系统补 | 原型是用户反复看过、认可的体验；App 和它「诸多细节相差甚远」。iOS 没有中文宋体，「手写的是他、印刷的是系统」这条规矩需要一个真正的印刷体 |
 | 82 | 每一轮把手写笔迹画成图发给模型读（2026-11-17 用户拍板「每轮都发图，和原型一致」） | 识别改成三路：系统 `PKStrokeRecognizer`（等结果稳定）→ 读不出再用 Vision → 每轮都把这一轮的笔迹图（白底黑字 PNG，原型 snapshot）连同手机认的字（只作参考）发给模型；模型按四行回答「读到 / 语气 / 回应 / 关照」。DeepSeek（deepseek-v4-flash，响应里报 deepseek-flash）读图已用合成笔迹图实测确认 | 真机实测手指写的英文多数认不出、中文九成认不出，纸上反复印「没读出字来」。原型就是让模型看图。代价：日记的笔迹图像发给供应商，比「只发识别文字」多，与 AGENTS 最少数据原则有张力，由用户明确承担；分发前随安全后端（G 组）一并复核 |
+| 83–85 | 2026-11-18 用户定：**83** 外屏是皮面旧书封面（参考图：深蓝灰皮、黄铜护角、烫金名牌），默认不能写，外屏从右往左滑翻开，内屏直接是纸，合上回封面——README S 组；**84** 做记忆系统，先列计划——README K 组，K1（带最近 5 轮）已做；**85** 被冒犯时他冷一点、带刺、反过来试探你 | 85 写进 Persona.json 的【他冲你来的时候】，压过「不冷淡」「不追问」；分寸：只刺那一句话，不刺软弱、不贬低人，压着难受时照自伤那段接住。真模型用自编测试句验过（骂他→冷而短、反问；平常话照旧温和） | 例句会被照抄，所以人设里写明「只是味道，不要照抄」 |
 | 77 | 魂写字比真人快 2.25 倍（09-01 拍板 1.5 倍；11-18 真机嫌慢，用户要求再快 1.5 倍） | 用 `StrokeSequence.timeScaled(by:)` **整段缩放**，不动任何手感参数 | 只把「书写速度」乘 1.5 是错的：一段回应的时长 = 落墨 + 抬笔移动 + 每次抬落笔的固定耗时，固定耗时那部分不跟着变（实测 189 笔的回应里占约 9/37 秒），于是整体快不到 1.5 倍，**而且三者的比例被改了**——那是在改手感不是改速度。整段缩放保住所有比例（相对停顿、起收笔加减速、抖动波长与速度的关系）。它是**产品手感选择不是测量结果**，和 A10 要校准的参数不是一回事 |
 
 已排除（实现过或讨论过，已删且不留死代码）：位图抽骨架路线、Python 位图/向量对比 spike、预制笔画母题库（组合太少）、图像生成与图像回应、Magic Stroke Lab 与离线夹具、渲染层的自动缩放与卡片外观。
@@ -106,8 +107,7 @@
 - **两个配置常量之间的隐藏耦合**（被测试撞出来的，不是事先想到的）：成页倒计时每 0.1 秒轮询，而最短预告期是 `shortestWait × hintFraction`；后者一旦短于前者，一次轮询就跨过整个预告期，「可撤销的预告」直接消失，症状只是「提示时有时无」。已加断言守住。 另：**浮点累加顺序会让「刚好画完」差一个尾数**：凡是「累加出来的总量」和「逐步推进的游标」要对得上的地方，两边必须用同一种累加方式，否则最后一笔差一点点画不完，没有任何报错。
 - 测试 target 开着 `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`：新测试类必须写成 `nonisolated final class …: XCTestCase`，否则继承来的初始化方法隔离冲突、直接编译失败（2026-11-16 对开包 10 个测试全中）。要测 `@MainActor` 类型时，隔离标在具体测试方法上。 **`.ignoresSafeArea()` 的 GeometryReader 读到的 `safeAreaInsets` 恒为 0**（2026-11-16 实测）：要从外层不忽略安全区的 GeometryReader 读。
 - Duo 模拟器有两块屏：截图要 `--display=primary`（外屏 1398×2034）或 `primary-1`（内屏 2007×2853）；`simctl` 不能控制合页，要在 **DeviceHub** 里手动开合（Xcode 27.3 用 DeviceHub 取代了 Simulator.app；`open -a Simulator` 会打开 26.6 的旧版，Duo 黑屏且被关机，2026-11-17 踩过）。看 App 的 `print` 用 `simctl launch --console-pty`（`--console` 重定向到文件会被缓冲成空）。 **Duo 的合页实测**（2026-11-17）：外屏 466×678 点；摊开的内屏是**横的** 951×669 点，折缝竖在中间。`reservedRegions(kind: .division)` **只在半开时**给出折缝（x 455.5、宽 40），摊平时给空——躲折缝不能只靠它。启动时会先误报一次 `flat`。iOS 27 的 `JSONDecoder` 接受末尾多逗号，别拿它当「坏 JSON」夹具。
-- **从 Xcode 跑的 DEBUG 构建里，`assertionFailure` 触发 = 画面定格、什么都写不了**，看起来就是「卡死」（2026-11-18 真机：`ReplyCadence` 字数和笔数对不上）。用户说「卡死」先问是不是从 Xcode 跑的、Xcode 是否停在某一行。
-- 两条来自系统的日志噪声，不是 bug：`Invalid reflowable tokens count` / `Skipping adding principal lines to token` 来自系统的 `handwritingd`；`UIKitHoverGestureRecognizer ... has been in possible phase for N seconds` 是因为当前所有可用硬件都不支持悬停，识别器永远停在 possible 阶段。 Xcode 26.6 并行 test clone 触发 `DVTiPhoneSimulator` assertion → 测试关闭并行。工程用 objectVersion 77 同步文件组，`Sources/`、`Tests/` 下新增文件自动入 target。kiro-pet 已迁至 `110_KiroPet`，不得放回本仓库。
+- **从 Xcode 跑的 DEBUG 构建里，`assertionFailure` 触发 = 画面定格、什么都写不了**，看起来就是「卡死」（2026-11-18 真机：`ReplyCadence` 字数和笔数对不上）。用户说「卡死」先问是不是从 Xcode 跑的、Xcode 是否停在某一行。 两条来自系统的日志噪声，不是 bug：`Invalid reflowable tokens count` / `Skipping adding principal lines to token` 来自系统的 `handwritingd`；`UIKitHoverGestureRecognizer ... has been in possible phase for N seconds` 是因为当前所有可用硬件都不支持悬停，识别器永远停在 possible 阶段。 Xcode 26.6 并行 test clone 触发 `DVTiPhoneSimulator` assertion → 测试关闭并行。工程用 objectVersion 77 同步文件组，`Sources/`、`Tests/` 下新增文件自动入 target。kiro-pet 已迁至 `110_KiroPet`，不得放回本仓库。
 
 ## 历史（精简）
 
