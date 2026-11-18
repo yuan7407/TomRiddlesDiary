@@ -102,6 +102,10 @@ nonisolated enum InteractionSettings {
 
     // MARK: 问魂的请求参数（计划 E6d）
 
+    /// 问他时带上最近几轮对话（你写的 + 他回的）。5 照网页原型（turns 超过 5 轮就丢最旧的）。
+    /// 这是 AGENTS「上下文页数上限」的那个上限：只在内存里，App 退出就清空。
+    static let oracleHistoryTurns = 5
+
     /// 一次 Oracle 请求的参数。
     static let oracleRequest = OracleRequestSettings(
         // 0.85：这是个要有个性的角色，不是查资料。温度太低会变成一板一眼的客服口吻，

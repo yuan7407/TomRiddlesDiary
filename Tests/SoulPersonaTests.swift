@@ -112,7 +112,8 @@ nonisolated final class SoulPersonaTests: XCTestCase {
     func testPromptExplainsTheWritingMannerLine() throws {
         let prompt = SoulSystemPrompt.compose(try SoulPersonaLoader.decode(personaJSON()))
         XCTAssertTrue(prompt.contains("他下笔的样子"))
-        XCTAssertTrue(prompt.contains("不要复述那些数字"))
+        XCTAssertTrue(prompt.contains("不复述数字"))
+        XCTAssertTrue(prompt.contains("他在骂你"), "他冲你来时要回应那件事，不谈下笔的样子（2026-11-18 真机）")
     }
 
     /// 两个不同的人设组出来的 prompt 必须不同——人设文件真的在起作用，而不是被渲染约束淹没。

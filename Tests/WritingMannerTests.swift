@@ -126,6 +126,34 @@ nonisolated final class WritingMannerTests: XCTestCase {
         XCTAssertEqual(content, "今天有点累。\n" + manner.sentenceForSoul)
     }
 
+    /// 2026-11-18 真机：平常的一轮也发「写得很慢」，他每一轮都谈速度。平常的一轮不发。
+    func testOrdinaryWritingIsNotMentioned() {
+        let ordinary = WritingManner(strokeCount: 40, seconds: 15, pace: .steady, longestPause: 1, shape: .writing, pauseIsWorthMentioning: false)
+        XCTAssertFalse(ordinary.isWorthMentioning)
+        XCTAssertEqual(OracleRequest(text: "x", strokeCount: 40, manner: ordinary).userContent(text: "You are stupid."), "You are stupid.\n" + WrittenLanguage.englishOnlyNote)
+        let paused = WritingManner(strokeCount: 40, seconds: 15, pace: .steady, longestPause: 4, shape: .writing, pauseIsWorthMentioning: true)
+        XCTAssertTrue(paused.isWorthMentioning)
+    }
+
+    /// 真机三轮手指正常写英文：3.4、3.3、2.8 字高/秒，不该算慢也不该算快。
+    func testShippedThresholdsCallNormalFingerWritingSteady() {
+        let t = BookFeel.writingManner
+        for speed in [3.4, 3.3, 2.8] {
+            XCTAssertGreaterThan(speed, t.slowBelowGlyphHeightsPerSecond)
+            XCTAssertLessThan(speed, t.fastAboveGlyphHeightsPerSecond)
+        }
+    }
+
+    /// 最近几轮在最前面（旧的在前），开场白只在没有历史时带。
+    func testHistoryComesFirstAndOpeningOnlyWithoutHistory() {
+        let turns = [OracleTurn(you: "hello", him: "Hello. Who is this?")]
+        let withHistory = OracleRequest(text: "x", strokeCount: 1, history: turns, opening: "你来了。").userContent(text: "Harry.")
+        XCTAssertTrue(withHistory.hasPrefix("之前的几轮（旧的在前）：\n他写：hello\n你回：Hello. Who is this?"))
+        XCTAssertFalse(withHistory.contains("你来了"))
+        let first = OracleRequest(text: "x", strokeCount: 1, opening: "你来了。\n怎么称呼你？").userContent(text: "Harry.")
+        XCTAssertTrue(first.hasPrefix("翻开本子时，你已经先在纸上写了：「你来了。怎么称呼你？」"))
+    }
+
     func testSystemPromptExplainsWhatTheBracketedLineIs() {
         XCTAssertTrue(SoulSystemPrompt.renderingConstraints.contains("他下笔的样子"), "模型要知道括号里那一行不是他写的字")
     }

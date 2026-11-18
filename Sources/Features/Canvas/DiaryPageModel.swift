@@ -675,7 +675,10 @@ final class DiaryPageModel {
 
         let spoken: OracleReply
         do {
-            spoken = try await oracle.respond(to: OracleRequest(text: text, strokeCount: strokeCount, manner: manner, handwriting: handwriting))
+            spoken = try await oracle.respond(to: OracleRequest(
+                text: text, strokeCount: strokeCount, manner: manner, handwriting: handwriting,
+                history: recentTurns, opening: recentTurns.isEmpty ? openingSaid : nil
+            ))
         } catch let failure as OracleFailure {
             fallSilent(failure)
             return
@@ -700,12 +703,24 @@ final class DiaryPageModel {
         // 他读到了什么、这句话的分量、要不要关照（R3 四行回答）。读到的那句印在他那页的页脚（P9）。
         heard = spoken.heard
         needsCare = spoken.needsCare
+        // 记下这一轮，下一轮他才接得上话（原型：只有读到了字的轮次才记）。
+        if let you = spoken.heard {
+            recentTurns.append(OracleTurn(you: you, him: spoken.text))
+            if recentTurns.count > InteractionSettings.oracleHistoryTurns {
+                recentTurns.removeFirst(recentTurns.count - InteractionSettings.oracleHistoryTurns)
+            }
+        }
         #if DEBUG
         diagnosis?.heard = spoken.heard
         print("── 魂 ── 读到「\(spoken.heard ?? "—")」 语气 \(spoken.mood ?? "—") 关照 \(spoken.needsCare ? "是" : "否")")
         #endif
         await writeOnPage(spoken.text)
     }
+
+    /// 最近几轮（你写的 + 他回的），问他时一起带上（计划 P9，见 `OracleRequest.history`）。只在内存里。
+    private(set) var recentTurns: [OracleTurn] = []
+    /// 开场时他写在纸上的话。第一轮问他时带上，让他知道自己已经开过口。
+    private var openingSaid: String?
 
     /// 他认出你这一轮写的是什么（四行回答的「读到」）。新的一轮成页时清掉。
     private(set) var heard: String?
@@ -828,6 +843,7 @@ final class DiaryPageModel {
         guard reply == nil, settledReplies.isEmpty, phase == .nothingNew else { return }
         beginReply(composed.sequence)
         greetingOnPage = true
+        openingSaid = lines
         openingHintPoint = Point2D(x: lineStart + o.lineLength * unit / 2, y: lineY + o.hintBelowLine * unit)
         #if DEBUG
         print("── 开场 ── 他先开口（\(composed.sequence.strokes.count) 笔，\(String(format: "%.1f", composed.sequence.totalDuration)) 秒）")

@@ -55,6 +55,12 @@ nonisolated struct WritingManner: Equatable, Sendable {
     /// 最长那次停顿值不值得说（由门槛决定）。存下来是为了让那句话不依赖配置。
     let pauseIsWorthMentioning: Bool
 
+    /// 这一轮下笔的样子值不值得告诉魂：不像在写字（点、线、圈、乱划），或者快慢出了常态，或者停了很久。
+    ///
+    /// 为什么平常的一轮不发（2026-11-18 真机）：原来每一轮都发，而当时的门槛把手指的正常速度全算成
+    /// 「写得很慢」，于是他每一轮都在说「你写得很慢」，你骂他他也只谈速度。平常就是平常，不必说。
+    var isWorthMentioning: Bool { shape != .writing || pace != .steady || pauseIsWorthMentioning }
+
     /// 交给魂的那一句话。放在用户文字后面，用括号括起来；system prompt 里有一条说明它是什么。
     var sentenceForSoul: String {
         let paceWords: String = switch pace {

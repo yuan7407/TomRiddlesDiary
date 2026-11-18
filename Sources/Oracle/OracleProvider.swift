@@ -58,12 +58,26 @@ nonisolated struct OracleRequest: Equatable, Sendable {
     /// 与 AGENTS「只发送完成任务所需的最少数据」有张力，由用户明确选择承担（决策 82）。
     let handwriting: Data?
 
-    /// `manner`、`handwriting` 有默认值，原来只传文字和笔数的调用处不用改。
-    init(text: String, strokeCount: Int, manner: WritingManner? = nil, handwriting: Data? = nil) {
+    /// 最近几轮你写了什么、他回了什么（旧的在前，计划 P9，照网页原型 turns）。
+    ///
+    /// 为什么要带（2026-11-18 真机）：原来每一轮都是一次全新的提问，他不知道上一轮自己已经说过
+    /// 「你写得很慢」，于是每一轮都说一遍。带上最近几轮，他才接得上话、也不会自己重复自己。
+    /// 发出去的是**他读到的字和他回的话**，不含笔迹图（图只发这一轮的）。最多几轮见
+    /// `InteractionSettings.oracleHistoryTurns`；只在内存里，App 退出就没了。
+    let history: [OracleTurn]
+
+    /// 翻开本子时他先在纸上写的话（P6 开场）。只在第一轮、还没有历史时带上，让他知道自己已经开过口。
+    let opening: String?
+
+    /// `manner`、`handwriting`、`history`、`opening` 有默认值，原来只传文字和笔数的调用处不用改。
+    init(text: String, strokeCount: Int, manner: WritingManner? = nil, handwriting: Data? = nil,
+         history: [OracleTurn] = [], opening: String? = nil) {
         self.text = text
         self.strokeCount = strokeCount
         self.manner = manner
         self.handwriting = handwriting
+        self.history = history
+        self.opening = opening
     }
 
     /// 发给模型的那段文字（图另外附）。放在 Oracle 层而不是某一个 provider 里，
@@ -72,20 +86,36 @@ nonisolated struct OracleRequest: Equatable, Sendable {
     /// 有图时：图是准的，手机自己认的字只作参考（常认错，甚至认成乱码）；没认出来就明说没认出来。
     /// 没图时：照旧只有他写的字。两种情况下，下笔的样子都另起一行附在后面。
     func userContent(text trimmed: String) -> String {
-        var lines: [String]
+        var lines: [String] = []
+        // 之前的几轮在最前面（原型的顺序）：先知道聊到哪了，再看这一句。
+        if !history.isEmpty {
+            lines.append("之前的几轮（旧的在前）：")
+            for turn in history { lines.append("他写：\(turn.you)\n你回：\(turn.him)") }
+            lines.append("")
+        } else if let opening, !opening.isEmpty {
+            lines.append("翻开本子时，你已经先在纸上写了：「\(opening.replacingOccurrences(of: "\n", with: ""))」")
+            lines.append("")
+        }
         if handwriting != nil {
-            lines = [trimmed.isEmpty
+            lines.append(trimmed.isEmpty
                 ? "（手机没认出这几笔是什么字。）"
-                : "手机自己认的字（常认错，只作参考，以图为准）：\(trimmed)"]
+                : "手机自己认的字（常认错，只作参考，以图为准）：\(trimmed)")
             lines.append("现在看附图，回应他刚写的这一句。")
         } else {
-            lines = [trimmed]
+            lines.append(trimmed)
         }
         // 手机认出来是纯英文：明说一句。只靠 system prompt 那条规则，真机上他照样用中文回（2026-11-18）。
         if WrittenLanguage.of(trimmed) == .english { lines.append(WrittenLanguage.englishOnlyNote) }
-        if let manner { lines.append(manner.sentenceForSoul) }
+        // 下笔的样子只在不寻常时才说（见 `WritingManner.isWorthMentioning`）。
+        if let manner, manner.isWorthMentioning { lines.append(manner.sentenceForSoul) }
         return lines.joined(separator: "\n")
     }
+}
+
+/// 一轮对话：你写的（他读到的那句）和他回的。
+nonisolated struct OracleTurn: Equatable, Sendable {
+    let you: String
+    let him: String
 }
 
 /// 魂说的话。
