@@ -105,15 +105,21 @@ nonisolated final class ReplyCadenceTests: XCTestCase {
         XCTAssertTrue(configuration.sentenceEnds.isSubset(of: Set(configuration.pauseAfter.keys)), "算句末的标点都应该有停顿")
     }
 
-    // MARK: ReplyComposer 的筛字
+    // MARK: 排版报的「排了哪些字」
 
-    func testLaidOutGlyphsDropsNewlinesAndUncoveredCharacters() {
-        XCTAssertEqual(ReplyComposer.laidOutGlyphs(of: "你好\n吗", uncovered: []), Array("你好吗"))
-        XCTAssertEqual(ReplyComposer.laidOutGlyphs(of: "你𠮷好𠮷", uncovered: ["𠮷", "𠮷"]), Array("你好"))
-        XCTAssertEqual(
-            ReplyComposer.laidOutGlyphs(of: "好𠮷好", uncovered: ["𠮷"]),
-            Array("好好"),
-            "缺的字只扣它自己，不能把后面同样写得出来的字也扣掉"
-        )
+    /// 字和笔数必须由排版一起给出：换行、缺字、折行处被吞掉的空格都只有排版知道。
+    /// 2026-11-18 真机：外屏回一句英文，在空格处折行，空格不进任何一行；当时从原文推字，
+    /// 多数了一个空格，`ReplyCadence` 断言把 App 停住，看上去就是卡死。
+    func testPlacedCharactersMatchStrokeCountsEvenWhenAWrapSwallowsASpace() throws {
+        for text in ["Hello... anyone there?", "你好\n吗", "你𠮷好𠮷", "Hello. Who is writing in me tonight?"] {
+            for width in [120.0, 160, 200, 240] {
+                let laidOut = try GlyphStrokeLayout().layOut(text, configuration: GlyphStrokeLayoutConfiguration(
+                    glyphSize: 40, lineWidth: width, lineSpacingRatio: 1.5, origin: .zero, hand: ReplyComposer.hand(seed: 3)
+                ))
+                XCTAssertEqual(laidOut.placedCharacters.count, laidOut.strokeCountsPerGlyph.count, "「\(text)」宽 \(width)")
+                XCTAssertFalse(laidOut.placedCharacters.contains("\n"))
+                XCTAssertFalse(laidOut.placedCharacters.contains("𠮷"), "缺笔顺的字不算排出来")
+            }
+        }
     }
 }

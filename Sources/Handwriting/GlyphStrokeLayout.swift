@@ -81,6 +81,14 @@ nonisolated struct LaidOutGlyphStrokes: Equatable, Sendable {
     /// 累加它就能把 `polylines` 切回按字分组。
     let strokeCountsPerGlyph: [Int]
 
+    /// 这些**画得出来**的字本身，与 `strokeCountsPerGlyph` 一一对应（空格在里面，是 0 笔）。
+    ///
+    /// 为什么由排版给、而不让调用方从原文推（2026-11-18 真机卡死）：分行时折在空格处，
+    /// 那个空格不进任何一行（`LineBreaker` 吞掉它）。调用方从原文推会多数一个空格，
+    /// 字和笔数对不上，`ReplyCadence` 的断言在 DEBUG 里直接把 App 停住。
+    /// 「排了哪些字」只有排版自己知道，所以只在这里给一份。
+    let placedCharacters: [Character]
+
     /// 没有笔顺数据、因此没有出现在 `polylines` 里的字。
     /// 非空意味着页面上会少东西，调用方必须处理而不是忽略。
     let uncoveredCharacters: [Character]
@@ -219,6 +227,7 @@ nonisolated struct GlyphStrokeLayout: Sendable {
         let size = configuration.glyphSize
         var polylines: [Polyline] = []
         var strokeCounts: [Int] = []
+        var placedCharacters: [Character] = []
         var uncovered: [Character] = []
         var lineEnds: [Character] = []
         var lastLineWidth = 0.0
@@ -251,6 +260,7 @@ nonisolated struct GlyphStrokeLayout: Sendable {
                     }
                     polylines.append(contentsOf: placed)
                     strokeCounts.append(glyph.strokes.count)
+                    placedCharacters.append(character)
                 } else {
                     uncovered.append(character)
                 }
@@ -264,6 +274,7 @@ nonisolated struct GlyphStrokeLayout: Sendable {
         return LaidOutGlyphStrokes(
             polylines: polylines,
             strokeCountsPerGlyph: strokeCounts,
+            placedCharacters: placedCharacters,
             uncoveredCharacters: uncovered,
             lineCount: lineCount,
             usedHeight: Double(lineCount) * lineHeight,

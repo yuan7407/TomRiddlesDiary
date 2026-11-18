@@ -54,14 +54,14 @@ nonisolated final class SpineRoundTests: XCTestCase {
     }
 
     @MainActor
-    private func round(writingFrom x0: CGFloat, outerScreen: Bool = false) async -> DiaryPageModel {
+    private func round(writingFrom x0: CGFloat, outerScreen: Bool = false, reply: String? = nil) async -> DiaryPageModel {
         let trigger = PageCommitTrigger(configuration: PageCommitConfiguration(
             pauseMultiplier: 2, shortestWait: 0.4, longestWait: 0.6,
             terminalPunctuationRatio: 1, hoverGrace: 0, hintFraction: 0.5
         ))
         let model = DiaryPageModel(
             recognizer: StubReader(), trigger: trigger,
-            oracle: StubOracle(text: replyText), composer: .forSoul()
+            oracle: StubOracle(text: reply ?? replyText), composer: .forSoul()
         )
         if outerScreen {
             // 外屏 466 × 678：页边距 37.3（短边 8%），右边再让开 84 的状态栏，下边 34。
@@ -120,5 +120,14 @@ nonisolated final class SpineRoundTests: XCTestCase {
         XCTAssertEqual(model.phase, .replying, "外屏上整轮失败了：\(model.phase)")
         let region = try replyRegion(model)
         XCTAssertLessThanOrEqual(region.right, 466 - 84 + 1, "回应伸进了状态栏那一列")
+    }
+
+    /// 2026-11-18 真机：外屏写 hello，系统认出了 hello，之后整个页面卡死、他没回。英文回应走拉丁字母排版。
+    @MainActor
+    func testEnglishReplyOnOuterScreen() async throws {
+        for text in ["Hello.", "Hello. Who is writing in me tonight?", "Hello... anyone there?", "hello。你是第一次在这本子上写字吗？"] {
+            let model = await round(writingFrom: 60, outerScreen: true, reply: text)
+            XCTAssertEqual(model.phase, .replying, "「\(text)」外屏上整轮失败了：\(model.phase)")
+        }
     }
 }

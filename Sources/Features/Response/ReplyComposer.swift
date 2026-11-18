@@ -313,7 +313,7 @@ nonisolated struct ReplyComposer: Sendable {
         // 笔法和节奏都按「一个字、它有几笔」来对账（`ReplyCadence` 会严格核对），所以把它们当成
         // 一个破折号交进去：笔法不给它楷书的粗细，节奏把它排在最后一个字之后（原型 la: true、前停 0.55 秒）。
         let polylines = laidOut.polylines + extraStrokes
-        let glyphs = Self.laidOutGlyphs(of: text, uncovered: laidOut.uncoveredCharacters)
+        let glyphs = laidOut.placedCharacters
             + (extraStrokes.isEmpty ? [] : [Self.extraStrokesGlyph])
         let strokeCounts = laidOut.strokeCountsPerGlyph + (extraStrokes.isEmpty ? [] : [extraStrokes.count])
         // ③ 手绘化。参考尺度传当前字号，因为所有手感量都是「字高的比例」（决策 25）：
@@ -360,25 +360,6 @@ nonisolated struct ReplyComposer: Sendable {
             placement: placement,
             uncoveredCharacters: laidOut.uncoveredCharacters
         )
-    }
-
-    /// 排版时真的排出来了的那些字，按顺序。
-    ///
-    /// `GlyphStrokeLayout.layOut` 的 `strokeCountsPerGlyph` 只给「排出来的字」记笔数：
-    /// 换行不算字，字形数据里没有的字被记进 `uncoveredCharacters` 而不记笔数。
-    /// 这里按同样的规则把原文筛一遍，两边才能一一对应。
-    /// 缺的字按它在原文里出现的先后逐个扣除（同一个缺字出现两次就扣两次）。
-    static func laidOutGlyphs(of text: String, uncovered: [Character]) -> [Character] {
-        var missing = uncovered[...]
-        var glyphs: [Character] = []
-        for character in text where !character.isNewline {
-            if let next = missing.first, next == character {
-                missing = missing.dropFirst()
-            } else {
-                glyphs.append(character)
-            }
-        }
-        return glyphs
     }
 
     /// 不该加楷书笔法的那些笔（按笔画下标）：拉丁字母、数字、标点的笔画。

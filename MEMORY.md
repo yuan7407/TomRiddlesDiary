@@ -9,7 +9,7 @@
 - **写好但没有界面在用的对开积木**：`SpreadGeometry`/`BookPosture`/`BookHinge`（版面与合页）、`InkRun`/`InkTransfer`/`ReadingSweep`（你的墨被抽走、读的时候的湿痕）、`WritingHaptics`（触感）、开场白（只有网页原型）。接进首屏前要先定待决定第 1 条。
 - **引擎**：`StrokePipeline → StrokeHumanizer → StrokeReplayTimeline`，入口只吃 `[Polyline]`；生产者是 `PencilStrokeReader`（用户手写）与 `GlyphStrokeLayout`（字形笔顺）。渲染层 `Features/Response/HandwritingReplayView`，入参 `ReplayPlayback` 三态，坐标 1:1。
 - **单位契约（D1/D2）**：坐标一律页面点；**只有字高用毫米**（默认 9 mm ≈ 54.3 pt，按 Duo 460 ppi ÷ 3 换算），其余是字高的比例。经验性常量唯一定义处在 `Configuration/`：`PageMetrics`（唯一毫米↔点换算）、`HandwritingFeel`、`PageAppearance`、`InteractionSettings`、`BookFeel`、`InkTone`。引擎没有默认参数。
-- **验证**：409 个 XCTest 在 iPhone Duo（iOS 27.3 模拟器）上通过。工具是 `/Applications/Xcode-beta.app` = **Xcode 27.3 beta**（27.0 已被覆盖），命令行用 `DEVELOPER_DIR` 指定、不改全局 `xcode-select`；测试必须加 `-parallel-testing-enabled NO`；收口跑 `bash scripts/repo_check.sh`。
+- **验证**：416 个 XCTest 在 iPhone Duo（iOS 27.3 模拟器）上通过。工具是 `/Applications/Xcode-beta.app` = **Xcode 27.3 beta**（27.0 已被覆盖），命令行用 `DEVELOPER_DIR` 指定、不改全局 `xcode-select`；测试必须加 `-parallel-testing-enabled NO`；收口跑 `bash scripts/repo_check.sh`。
 - **目录**：`Sources/` 下 `Configuration / Features(Canvas·Response·Book) / Handwriting / StrokeEngine / Spread / Oracle / Calibration / Resources` + 入口。`Config/Secrets.xcconfig`（gitignored，用户唯一要维护的一行 key）+ `Config/Info.plist`（接线用）。人设 `Sources/Resources/Persona.json`；根目录 `C1-response-quality-set.md` 是评测数据。对开原始包与旧交接稿在仓库外 `../109_TomRiddlesDiary_archive/`。
 
 ## 决策表
@@ -95,10 +95,8 @@
 ## Agent 自身的判断错误（记下来避免重犯）
 
 - **把「模拟器返回了什么」当成「平台支持什么」**（2026-08-27）：运行时能力查询反映的是当前环境装了什么，不是平台契约；能力缺失要定位到最小范围（当时把「中文缺模型」放大成「输入端整体换路」）。
-- **同一条规则在两处独立取值**（2026-08-31，E9e）：为一条已有规则再取一个数之前，先去找那条规则原来的值。
-- **关键路径留了不打日志的静默分支**（2026-09-01，E6a）：凡是「什么都没发生」是一种可能结果的路径，都必须能从日志说出发生了哪一种。
-- **拿陈旧构建产物当验证依据**（2026-09-01，H9）：验构建产物要用刚删空的 `-derivedDataPath` 当场构建并核对时间戳；「我核实过」要说得出核实的是哪次构建。
-- **以「好处从未测量」为由拆掉现成缓存**（2026-08-31）：动现成的性能措施前先量代价。
+- **关键路径留了不打日志的静默分支**（2026-09-01，E6a）：凡是「什么都没发生」是一种可能结果的路径，都必须能从日志说出发生了哪一种。 **拿陈旧构建产物当验证依据**（2026-09-01，H9）：验构建产物要用刚删空的 `-derivedDataPath` 当场构建并核对时间戳；「我核实过」要说得出核实的是哪次构建。
+- **同一条规则在两处独立取值**（2026-08-31，E9e）：为已有规则再取一个数之前，先找它原来的值；同理，「排了哪些字」只能由排版给，调用方从原文推会和排版分叉（2026-11-18 真机卡死）。**以「好处从未测量」为由拆掉现成缓存**（08-31）：动现成的性能措施前先量代价。
 - **设备参数取自第三方规格页**（2026-11-16，对开包的 430 ppi，实为 460）：Xcode 自带的模拟器机型描述（`/Library/Developer/CoreSimulator/Profiles/DeviceTypes/*.simdevicetype` 里的 `capabilities.plist`）有 Apple 给的 dpi 与倍率，先查它。
 
 ## 已知陷阱
@@ -106,9 +104,9 @@
 - **模拟器空闲时冻结渲染循环**（实测）：`TimelineView` 两种调度都只出一两帧就停；`@State` 触发的重绘照常。不要因为模拟器里不动就以为代码错了——这和中文识别模型缺失是同一类环境限制。
 - **`@Observable` 不比较新旧值**（2026-08-29，代价是一个真 bug）：把同一个值再写一遍，观察者照样收到通知、界面照样重建。倒计时每 0.1 秒写一次 `phase`（大多数次值没变），界面每秒重建十次，PencilKit 墨迹层被反复标脏却一直没重绘——**用户写的字从纸上消失了**，而数据全在、纸色也在。凡是高频赋值给 `@Observable` 属性，都要先比较。
 - **两个配置常量之间的隐藏耦合**（被测试撞出来的，不是事先想到的）：成页倒计时每 0.1 秒轮询，而最短预告期是 `shortestWait × hintFraction`；后者一旦短于前者，一次轮询就跨过整个预告期，「可撤销的预告」直接消失，症状只是「提示时有时无」。已加断言守住。 另：**浮点累加顺序会让「刚好画完」差一个尾数**：凡是「累加出来的总量」和「逐步推进的游标」要对得上的地方，两边必须用同一种累加方式，否则最后一笔差一点点画不完，没有任何报错。
-- 测试 target 开着 `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`：新测试类必须写成 `nonisolated final class …: XCTestCase`，否则继承来的初始化方法隔离冲突、直接编译失败（2026-11-16 对开包 10 个测试全中）。要测 `@MainActor` 类型时，隔离标在具体测试方法上。
-- **`.ignoresSafeArea()` 的 GeometryReader 读到的 `safeAreaInsets` 恒为 0**（2026-11-16 实测）：要从外层不忽略安全区的 GeometryReader 读。
+- 测试 target 开着 `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`：新测试类必须写成 `nonisolated final class …: XCTestCase`，否则继承来的初始化方法隔离冲突、直接编译失败（2026-11-16 对开包 10 个测试全中）。要测 `@MainActor` 类型时，隔离标在具体测试方法上。 **`.ignoresSafeArea()` 的 GeometryReader 读到的 `safeAreaInsets` 恒为 0**（2026-11-16 实测）：要从外层不忽略安全区的 GeometryReader 读。
 - Duo 模拟器有两块屏：截图要 `--display=primary`（外屏 1398×2034）或 `primary-1`（内屏 2007×2853）；`simctl` 不能控制合页，要在 **DeviceHub** 里手动开合（Xcode 27.3 用 DeviceHub 取代了 Simulator.app；`open -a Simulator` 会打开 26.6 的旧版，Duo 黑屏且被关机，2026-11-17 踩过）。看 App 的 `print` 用 `simctl launch --console-pty`（`--console` 重定向到文件会被缓冲成空）。 **Duo 的合页实测**（2026-11-17）：外屏 466×678 点；摊开的内屏是**横的** 951×669 点，折缝竖在中间。`reservedRegions(kind: .division)` **只在半开时**给出折缝（x 455.5、宽 40），摊平时给空——躲折缝不能只靠它。启动时会先误报一次 `flat`。iOS 27 的 `JSONDecoder` 接受末尾多逗号，别拿它当「坏 JSON」夹具。
+- **从 Xcode 跑的 DEBUG 构建里，`assertionFailure` 触发 = 画面定格、什么都写不了**，看起来就是「卡死」（2026-11-18 真机：`ReplyCadence` 字数和笔数对不上）。用户说「卡死」先问是不是从 Xcode 跑的、Xcode 是否停在某一行。
 - 两条来自系统的日志噪声，不是 bug：`Invalid reflowable tokens count` / `Skipping adding principal lines to token` 来自系统的 `handwritingd`；`UIKitHoverGestureRecognizer ... has been in possible phase for N seconds` 是因为当前所有可用硬件都不支持悬停，识别器永远停在 possible 阶段。 Xcode 26.6 并行 test clone 触发 `DVTiPhoneSimulator` assertion → 测试关闭并行。工程用 objectVersion 77 同步文件组，`Sources/`、`Tests/` 下新增文件自动入 target。kiro-pet 已迁至 `110_KiroPet`，不得放回本仓库。
 
 ## 历史（精简）
@@ -119,3 +117,4 @@
 - **2026-08-28 至 08-31（输入端接通、字形笔画、成页与打断、A 组、落点）**：升 Swift 6 并给纯逻辑层加 import 白名单检查；接上 PencilKit 画布；E1 字形数据只留 medians（5.26 MB，9574 字），刻意不复用比例字宽排版；E3c 成页阈值改成停顿中位数 × 倍数；E3d `ReplayPlayback` 三态；E3e 按落笔时刻切轮次；E4b 落笔前告知读不出哪些语言；A 组结构修完（四项零参数）；E1c/E1d 手写 89 个标点与拉丁字形；部署目标降到 26、识别用 `#available` 门控、缺识别器时 `XCTSkip` 而不是假绿；建 `Calibration/`；E9a–E9e 落点决策（字号换算比例 0.49 由测试重新量出）。用户实测 Scribble 排除了中文识别这个头号风险。教训见「判断错误」与「已知陷阱」。
 - **2026-09-01（H9 + C1 改向 + E6a/E6d 接通 + 翻页）**：删 E8 字体脚手架；C1 改成「必须带邀请」（决策 61、75）；`OracleProvider` + DEBUG Mock + `ReplyComposer` 装配点，链路终于通了。实测修掉三件：模拟器里 `TimelineView` 只出一帧导致回应看不见（改异步循环推进 `@State`）、第二段回应一写第一段就消失（`settledReplies`，决策 65）、Mock 回应与真回应分不清（决策 66）。配置砍到用户只碰一个文件（决策 70、71）、删 IP 门禁（决策 73）、真接 DeepSeek（必须关思考模式，决策 74）、E3f 翻页与 A11 整段 1.5 倍速（决策 76、77）。320 测试在 iOS 26.5 与 27.0 上通过。
 - **2026-11-16（迁到 iPhone Duo + 合并对开包）**：用户拍板只要 iPhone（决策 78）与发送「下笔的样子」（决策 79）。装 Xcode 27.3 beta。M1 对开包干净打上，App 零错零警告，只需给 10 个新测试类补 `nonisolated`（403 测试过）。M2 发现两处真问题：对开包的屏幕密度 430 ppi 不对，Xcode 自带 Duo 机型描述写的是 460 ppi、3 倍；iPhone 上提示压在状态栏上、回应可能落到灵动岛下，改成页边距从安全区内侧量起。M4 恢复被 `d7b8f70` 误删的 SoulPersonaTests 并删掉死代码 `fileMissing`。在 Duo 模拟器上 409 测试通过，合上状态的姿态（closed）与外屏尺寸核对无误。
+- **2026-11-17 至 11-18（网页原型对齐 P1–P6、识别 R0–R3、真机）**：决策 80–82。真机首测：外屏写 hello，系统 0.2 秒认对，但英文回应在空格处折行时排版吞掉了那个空格、`ReplyComposer` 从原文推字多数一个，`ReplyCadence` 断言把 App 停住。改成排版自己报 `placedCharacters`，并补了折行测试。
