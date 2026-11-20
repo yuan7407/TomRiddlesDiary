@@ -205,6 +205,17 @@ nonisolated final class OracleProviderTests: XCTestCase {
         }
     }
 
+    /// 网络错误要带错误码（2026-11-19 真机日志只有「NSURLError」，分不出超时、没网还是被取消）；
+    /// 取消不算失败，交给上层按作废处理。
+    func testNetworkErrorsKeepTheirCodeAndCancellationIsNotAFailure() {
+        let timedOut = URLSessionOracleTransport.failure(for: URLError(.timedOut))
+        guard case .couldNotReach(let detail)? = timedOut as? OracleFailure else {
+            return XCTFail("超时应该报 couldNotReach，得到 \(timedOut)")
+        }
+        XCTAssertTrue(detail.contains("-1001") && detail.contains("超时"), detail)
+        XCTAssertTrue(URLSessionOracleTransport.failure(for: URLError(.cancelled)) is CancellationError)
+    }
+
     /// 空回应必须当失败。在纸上写一片空白比说「这次没成」更让人困惑。
     func testEmptyContentIsAFailureNotAnEmptyReply() async {
         let transport = FakeTransport(json: reply("   "))

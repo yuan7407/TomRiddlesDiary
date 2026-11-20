@@ -251,6 +251,29 @@ nonisolated final class OracleLoopTests: XCTestCase {
         XCTAssertNil(model.reply, "用户已经重新落笔，这一轮回应还是写上去了")
     }
 
+    /// 2026-11-19 真机：真的网络请求在任务被取消时会**抛错**（不像上面那个假魂会照样返回）。
+    /// 那是作废，不是失败：纸上不许出现「没能把你写的话送出去」，阶段要留在「在写」。
+    @MainActor
+    func testWritingWhileTheRequestIsInFlightIsNotAFailure() async {
+        /// 像 URLSession 一样：任务被取消就抛错。
+        struct CancellableOracle: OracleProvider {
+            func respond(to request: OracleRequest) async throws -> OracleReply {
+                try await Task.sleep(for: .seconds(5))
+                return OracleReply(text: "不该走到这里。")
+            }
+        }
+
+        let model = makeModel(oracle: CancellableOracle())
+        model.strokeFinished(makeDrawing())
+
+        await waitUntil("已经把文字交给魂") { model.phase == .askingSoul }
+        model.strokeBegan()
+
+        try? await Task.sleep(for: .milliseconds(300))
+        XCTAssertEqual(model.phase, .writing, "取消被当成了失败：纸上会说没能送出去")
+        XCTAssertNil(model.reply)
+    }
+
     // MARK: 装配（ReplyComposer）
 
     /// 装配出来的落点必须和真排出来的位置一致。

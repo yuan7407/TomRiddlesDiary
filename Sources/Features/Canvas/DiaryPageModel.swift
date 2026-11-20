@@ -606,6 +606,9 @@ final class DiaryPageModel {
         // 用整页的最晚时刻而不是这一轮的，这样即使中途有笔画顺序异常也不会重复交。
         committedBoundary = WritingRound.boundary(of: drawing) ?? committedBoundary
 
+        // 识别的时候你又落笔了：这一轮不问他（识别结果也不作数，被取消的 Vision 会读成「无」）。
+        guard !abandonedByNewWriting() else { return }
+
         #if DEBUG
         // 计划 A10：把这一轮的真人笔迹量成数字，打进控制台。
         // 只在 DEBUG：这是开发期的量尺，不是产品功能。
@@ -712,6 +715,8 @@ final class DiaryPageModel {
             fallSilent(failure)
             return
         } catch {
+            // 请求发出去以后你又落笔了：网络层把取消换成了 CancellationError，这一轮作废，不是失败。
+            if abandonedByNewWriting() { return }
             // 非 OracleFailure 的错误也不能吞掉。带上类型名供开发期定位，
             // 但不把原始错误文本给用户看——那里面可能有端点或请求细节。
             fallSilent(.couldNotReach(detail: String(describing: type(of: error))))
@@ -1106,6 +1111,20 @@ final class DiaryPageModel {
             on: inkMap(writableArea: writableArea, glyphSize: glyphSize),
             seed: seed
         )
+    }
+
+    /// 这一轮是不是被你新落的笔取消了。
+    ///
+    /// 成页跑在倒计时那个 Task 里（`startCountdown`），落笔（`strokeBegan`）会取消它。
+    /// 取消不是失败：不许在纸上说「没能送出去」，也不许把阶段从「在写」改掉——
+    /// 2026-11-19 真机：识别一半时你又写了，Vision 被取消、请求立刻被取消，纸上却印了「没能把你写的话送出去」。
+    /// 和「回应到了但你已经重新落笔」（`askSoul` 里看阶段的那条）是同一种作废，只是发生得更早。
+    private func abandonedByNewWriting() -> Bool {
+        guard Task.isCancelled else { return false }
+        #if DEBUG
+        print("── 魂（E6a）── 你又落笔了，这一轮不问他（阶段 \(phase)）")
+        #endif
+        return true
     }
 
     /// 魂说不出话，如实记下并显示。

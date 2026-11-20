@@ -5,6 +5,7 @@
 //  为什么测这些：规则是用户逐条定的——合上是封面、外屏翻开以后是纸、摊开的内屏没有封面、
 //  合上 / 切后台 / 锁屏都回到封面、从摊开合上时演一遍合回来。这些都是纯数据，机器能守住；
 //  好不好看只能真机眼看（S10）。
+//  提示（教你掀开手机）的那条掀开曲线也在这里钉住：两头必须合严，否则循环时封面会跳一下。
 //
 
 import XCTest
@@ -57,5 +58,18 @@ nonisolated final class CoverStateTests: XCTestCase {
         cover.leftTheApp()
         XCTAssertTrue(cover.showsCover(posture: .closed, isPortrait: true))
         XCTAssertFalse(cover.closesWithMotion)
+    }
+
+    /// 提示：慢慢掀开 → 停住 → 合回去。两头合严（循环不跳），中间到顶，任何时候都不超过 1。
+    func testHintOpensTheCoverAndClosesItBeforeTheLoopRestarts() {
+        let m = CoverLook.Motion.self
+        XCTAssertEqual(BookCoverView.hintOpening(0), 0)
+        XCTAssertEqual(BookCoverView.hintOpening(1), 0, "一段演完时没合严，下一段开头会跳")
+        XCTAssertEqual(BookCoverView.hintOpening(m.hintClosedBy), 0, accuracy: 1e-9)
+        XCTAssertEqual(BookCoverView.hintOpening((m.hintHoldFrom + m.hintCloseFrom) / 2), 1)
+        let samples = stride(from: 0.0, through: 1.0, by: 0.01).map(BookCoverView.hintOpening)
+        XCTAssertTrue(samples.allSatisfy { (0 ... 1).contains($0) })
+        let rising = samples.prefix(Int(m.hintHoldFrom * 100))
+        XCTAssertEqual(Array(rising), rising.sorted(), "掀开的那段不许忽开忽合")
     }
 }

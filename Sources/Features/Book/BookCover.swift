@@ -4,16 +4,20 @@
 //
 //  文件职责：外屏那张旧书封面（计划 S 组，决策 83）——什么时候盖着、怎么翻开、怎么合回来。
 //
-//  规则（用户 2026-11-18 定）：
-//  · 本子合上（外屏）时是封面，封面上不能写字；从右往左滑才翻开，翻开以后是纸。
+//  规则（用户 2026-11-18 定，11-19 补充）：
+//  · 本子合上（外屏）时是封面，封面上不能写字。把手机掀开就是翻开本子（摊开后内屏没有封面）；
+//    在外屏上从右往左滑也能翻开，翻开以后是纸——这条留着，以后给 iPad 和单屏 iPhone 用。
 //  · 摊开用内屏时没有封面，直接是纸。
 //  · 合上本子、切到后台、锁屏回来，都回到封面。
 //  这些规则全在 `CoverState` 里（纯数据，可测）；`BookCoverView` 只负责画和手势。
 //
 //  翻开的样子：封面绕左边的书脊转开（3D 透视），转离光源时变暗，压在纸上的那道影子跟着变淡；
 //  手指拖着走，松手时过了一定比例或甩得够快就翻开，否则弹回。合上时倒着演一遍。
-//  封面静着 3 秒没人碰，就有一点淡淡的光从书口往左滑过、封面跟着微微掀起，教你怎么翻（循环，无文字）。
-//  系统设置「减少动态效果」时不转，只淡出淡入。
+//  封面静着 3 秒没人碰，封面就自己从书口那边微微掀开一道缝、缝里透出一点光，再合回去（3 秒，循环，无文字）：
+//  提示的是「把手机掀开」（用户 2026-11-19 更正：不是教你滑）。Duo 的折缝就是书脊，
+//  外屏这一半掀开时正是绕左边转、右边朝你抬起来，和封面翻开的方向一致，所以用封面自己动来教。
+//  早先那版「一点光从书口往左滑」读起来像是叫你往左滑，删了。
+//  系统设置「减少动态效果」时不转，只在书口淡淡亮一下。
 //
 
 import SwiftUI
@@ -83,36 +87,11 @@ struct BookCoverView: View {
 
     var body: some View {
         GeometryReader { proxy in
-            let size = proxy.size
-            let m = CoverLook.Motion.self
-            // 提示时封面右边跟着微微掀起（光滑到一半时最高）。
-            let lift = hint.map { reduceMotion ? 0 : sin(Self.travel($0) * .pi) * m.hintLift } ?? 0
-            let angle = max(progress, lift) * m.openAngleDegrees
-            ZStack(alignment: .topLeading) {
-                // 封面压在纸上的那道影子：封面右边缘投在纸上，掀得越开越淡。
-                if !reduceMotion, progress > 0 {
-                    let edge = size.width * cos(angle * .pi / 180)
-                    LinearGradient(colors: [.black.opacity(m.pageShadowOpacity * (1 - progress)), .clear],
-                                   startPoint: .leading, endPoint: .trailing)
-                        .frame(width: m.pageShadowWidth)
-                        .offset(x: max(0, edge))
-                }
-
-                CoverFace(size: size)
-                    .overlay(Color.black.opacity(reduceMotion ? 0 : m.turnDarkening * sin(angle * .pi / 180)))
-                    .rotation3DEffect(.degrees(reduceMotion ? 0 : -angle), axis: (x: 0, y: 1, z: 0),
-                                      anchor: .leading, perspective: m.perspective)
-                    .opacity(reduceMotion ? 1 - progress : (angle >= 90 ? 0 : 1))
-
-                if let hint {
-                    HintGlow(phase: hint, size: size, moves: !reduceMotion)
-                }
-            }
-            .frame(width: size.width, height: size.height)
-            .contentShape(Rectangle())
-            .gesture(openGesture(width: size.width))
-            .onAppear { appeared() }
-            .task(id: touches) { await loopHint() }
+            CoverSheet(size: proxy.size, progress: progress, hint: hint, reduceMotion: reduceMotion)
+                .contentShape(Rectangle())
+                .gesture(openGesture(width: proxy.size.width))
+                .onAppear { appeared() }
+                .task(id: touches) { await loopHint() }
         }
         .ignoresSafeArea()
         .sensoryFeedback(.impact(weight: .heavy, intensity: 0.8), trigger: thumps)
@@ -185,43 +164,75 @@ struct BookCoverView: View {
         }
     }
 
-    /// 提示里光点走到哪了：淡入时不动，之后缓入缓出地走，淡出时停在终点。0…1。
-    nonisolated static func travel(_ phase: Double) -> Double {
+    /// 提示演到 `phase`（0…1）时封面掀开多少：0 = 合着，1 = 掀到 `hintLift`。
+    /// 慢慢掀开 → 停一下 → 合回去，两头都是 0，循环时不会跳。
+    nonisolated static func hintOpening(_ phase: Double) -> Double {
         let m = CoverLook.Motion.self
-        let u = min(1, max(0, (phase - m.hintFadeIn) / (m.hintFadeOutFrom - m.hintFadeIn)))
-        return u * u * (3 - 2 * u)   // smoothstep：算法本身的常数
+        func smoothstep(_ x: Double) -> Double {
+            let u = min(1, max(0, x))
+            return u * u * (3 - 2 * u)   // smoothstep：算法本身的常数
+        }
+        if phase <= m.hintHoldFrom { return smoothstep(phase / m.hintHoldFrom) }
+        if phase <= m.hintCloseFrom { return 1 }
+        return 1 - smoothstep((phase - m.hintCloseFrom) / (m.hintClosedBy - m.hintCloseFrom))
     }
 }
 
-/// 提示的那一点光：从书口往左滑，拖一小截尾巴。没有文字（用户要求）。
-private struct HintGlow: View {
-    let phase: Double
+/// 封面某一刻的样子：翻开到哪（`progress`）、提示演到哪（`hint`）。只管画，不管手势和计时，
+/// 所以能单独渲染出来看某一帧（测试里就是这么检查提示长什么样的）。
+struct CoverSheet: View {
     let size: CGSize
-    /// 「减少动态效果」时光点不走，只在书口那儿淡入淡出。
-    let moves: Bool
+    /// 0 = 合着，1 = 完全翻开。
+    let progress: Double
+    /// 提示演到哪了（0…1）；nil = 没在演。
+    let hint: Double?
+    let reduceMotion: Bool
 
     var body: some View {
         let m = CoverLook.Motion.self
-        let fade = min(phase / m.hintFadeIn, 1) * min((1 - phase) / (1 - m.hintFadeOutFrom), 1)
-        let radius = m.hintGlowRadius * size.width
-        Canvas { context, _ in
-            for k in 0 ... (moves ? m.hintTrailCount : 0) {
-                let u = moves ? BookCoverView.travel(phase - Double(k) * m.hintTrailStep) : 0
-                let x = size.width * (m.hintStartX + (m.hintEndX - m.hintStartX) * u)
-                let y = size.height * m.hintY
-                let falloff = 1 - Double(k) / Double(m.hintTrailCount + 1)
-                let r = radius * (0.55 + 0.45 * falloff)
-                context.fill(
-                    Path(ellipseIn: CGRect(x: x - r, y: y - r, width: r * 2, height: r * 2)),
-                    with: .radialGradient(
-                        Gradient(colors: [CoverLook.Plate.goldLight.color.opacity(m.hintGlowOpacity * fade * falloff), .clear]),
-                        center: CGPoint(x: x, y: y), startRadius: 0, endRadius: r
-                    )
-                )
+        let opening = hint.map(BookCoverView.hintOpening) ?? 0
+        let angle = max(progress, reduceMotion ? 0 : opening * m.hintLift) * m.openAngleDegrees
+        ZStack(alignment: .topLeading) {
+            // 封面压在纸上的那道影子：封面右边缘投在纸上，掀得越开越淡。
+            if !reduceMotion, progress > 0 {
+                let edge = size.width * cos(angle * .pi / 180)
+                LinearGradient(colors: [.black.opacity(m.pageShadowOpacity * (1 - progress)), .clear],
+                               startPoint: .leading, endPoint: .trailing)
+                    .frame(width: m.pageShadowWidth)
+                    .offset(x: max(0, edge))
+            }
+
+            CoverFace(size: size)
+                .overlay(Color.black.opacity(reduceMotion ? 0 : m.turnDarkening * sin(angle * .pi / 180)))
+                .rotation3DEffect(.degrees(reduceMotion ? 0 : -angle), axis: (x: 0, y: 1, z: 0),
+                                  anchor: .leading, perspective: m.perspective)
+                .opacity(reduceMotion ? 1 - progress : (angle >= 90 ? 0 : 1))
+
+            if opening > 0 {
+                HintSeam(size: size, strength: opening)
             }
         }
-        .allowsHitTesting(false)
-        .accessibilityHidden(true)
+        .frame(width: size.width, height: size.height)
+    }
+}
+
+/// 提示时书口那道缝里透出来的光：贴着右边缘，中间亮、往上下两只护角淡下去。没有文字（用户要求）。
+/// 光不跟封面转：它是从书里（纸那边）透出来的。
+private struct HintSeam: View {
+    let size: CGSize
+    /// 0…1，跟封面掀开的程度走。
+    let strength: Double
+
+    var body: some View {
+        let m = CoverLook.Motion.self
+        LinearGradient(colors: [.clear, CoverLook.Plate.goldLight.color.opacity(m.hintSeamOpacity * strength)],
+                       startPoint: .leading, endPoint: .trailing)
+            .frame(width: m.hintSeamWidth, height: size.height)
+            .mask(LinearGradient(colors: [.clear, .white, .white, .clear], startPoint: .top, endPoint: .bottom))
+            .blendMode(.screen)
+            .offset(x: size.width - m.hintSeamWidth)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
     }
 }
 

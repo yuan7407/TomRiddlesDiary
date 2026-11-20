@@ -49,11 +49,39 @@ nonisolated struct URLSessionOracleTransport: OracleTransport {
     }
 
     func send(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
-        let (data, response) = try await session.data(for: request)
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await session.data(for: request)
+        } catch let error as URLError {
+            throw Self.failure(for: error)
+        }
         guard let http = response as? HTTPURLResponse else {
             throw OracleFailure.couldNotReach(detail: "返回的不是 HTTP 响应")
         }
         return (data, http)
+    }
+
+    /// 网络层的错误换成什么抛出去。
+    ///
+    /// · 取消（发请求的那个任务被取消了，比如你又落笔）不是失败，换成 `CancellationError`，
+    ///   让上层按「这一轮作废」处理，而不是在纸上说「没能送出去」（2026-11-19 真机日志就是这么误报的）。
+    /// · 其余带上错误码：-1001 超时、-1009 没网、-1005 连接断了，处置各不相同。
+    ///   原先只留了类型名「NSURLError」，看日志根本分不出是哪一种。
+    static func failure(for error: URLError) -> Error {
+        if error.code == .cancelled { return CancellationError() }
+        return OracleFailure.couldNotReach(detail: "网络 \(error.code.rawValue)\(hint(for: error.code))")
+    }
+
+    private static func hint(for code: URLError.Code) -> String {
+        switch code {
+        case .timedOut: "（超时，没等到回答）"
+        case .notConnectedToInternet: "（手机没联网）"
+        case .networkConnectionLost: "（连接中途断了）"
+        case .cannotFindHost, .cannotConnectToHost, .dnsLookupFailed: "（连不上服务器）"
+        case .secureConnectionFailed: "（安全连接没建起来）"
+        default: ""
+        }
     }
 }
 
